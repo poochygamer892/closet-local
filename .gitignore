@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+build/
+build-ios/
+*.ipa
+*.xcarchive
+ios/Pods/
+ios/build/
+android/.gradle/
+android/app/build/
+.DS_Store
+.env
