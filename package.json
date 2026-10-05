@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.6.1",
-    "base64-js": "^1.5.1",
     "expo": "~52.0.20",
     "expo-asset": "~11.0.5",
     "expo-crypto": "~14.0.1",
@@ -22,9 +21,6 @@
     "expo-secure-store": "~14.0.1",
     "expo-sqlite": "~15.1.2",
     "expo-status-bar": "~2.0.1",
-    "fast-png": "^6.2.0",
-    "jpeg-js": "^0.4.4",
-    "onnxruntime-react-native": "^1.20.1",
     "react": "18.3.1",
     "react-native": "0.76.5",
     "react-native-gesture-handler": "~2.20.2",
