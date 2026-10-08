@@ -19,7 +19,7 @@ export default function App(){
       <Pressable style={[s.button,confirmed&&s.buttonDone]} onPress={()=>setConfirmed(true)}><Text style={s.buttonText}>{confirmed?'Comprobado':'Tocar para comprobar'}</Text></Pressable>
       {confirmed&&<Text style={s.success}>Interfaz y JavaScript funcionando.</Text>}
     </View>
-    <Text style={s.version}>CLOSET LOCAL · DIAGNÓSTICO 0.2.2</Text>
+    <Text style={s.version}>CLOSET LOCAL · DIAGNÓSTICO 0.2.3 · JSC</Text>
   </SafeAreaView>
 }
 
