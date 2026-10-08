@@ -27,6 +27,46 @@ export function ensureLocalOwner(){
  return owner.id;
 }
 
+type BackupGarment={id:number;name:string;category:string;subcategory:string|null;color:string|null;material:string|null;style:string|null;season:string|null;brand:string|null;price:number|null;archived:number;created_at:string};
+type BackupImage={id:number;garment_id:number;sort_order:number};
+type BackupWear={garment_id:number;worn_on:string};
+type BackupOutfit={id:number;name:string;notes:string|null;created_at:string};
+type BackupOutfitItem={outfit_id:number;garment_id:number;slot:string;accessory_type:string|null;jewelry_type:string|null;layer_index:number;x:number;y:number;scale:number};
+type BackupPackingList={id:number;name:string;destination:string|null;starts_on:string|null;ends_on:string|null};
+type BackupPackingItem={packing_list_id:number;garment_id:number;packed:number};
+
+export type LocalBackupSnapshot={
+ garments:BackupGarment[];garment_images:BackupImage[];wears:BackupWear[];outfits:BackupOutfit[];outfit_items:BackupOutfitItem[];packing_lists:BackupPackingList[];packing_items:BackupPackingItem[];
+};
+
+export type ImportedImageUris=Record<number,{original_uri:string;processed_uri:string}>;
+
+export function localBackupSnapshot(userId:number):LocalBackupSnapshot{return{
+ garments:db.getAllSync<BackupGarment>('SELECT id,name,category,subcategory,color,material,style,season,brand,price,archived,created_at FROM garments WHERE user_id=? ORDER BY id',userId),
+ garment_images:db.getAllSync<BackupImage>('SELECT id,garment_id,sort_order FROM garment_images WHERE garment_id IN (SELECT id FROM garments WHERE user_id=?) ORDER BY id',userId),
+ wears:db.getAllSync<BackupWear>('SELECT garment_id,worn_on FROM wears WHERE garment_id IN (SELECT id FROM garments WHERE user_id=?) ORDER BY id',userId),
+ outfits:db.getAllSync<BackupOutfit>('SELECT id,name,notes,created_at FROM outfits WHERE user_id=? ORDER BY id',userId),
+ outfit_items:db.getAllSync<BackupOutfitItem>('SELECT outfit_id,garment_id,slot,accessory_type,jewelry_type,layer_index,x,y,scale FROM outfit_items WHERE outfit_id IN (SELECT id FROM outfits WHERE user_id=?) ORDER BY id',userId),
+ packing_lists:db.getAllSync<BackupPackingList>('SELECT id,name,destination,starts_on,ends_on FROM packing_lists WHERE user_id=? ORDER BY id',userId),
+ packing_items:db.getAllSync<BackupPackingItem>('SELECT packing_list_id,garment_id,packed FROM packing_items WHERE packing_list_id IN (SELECT id FROM packing_lists WHERE user_id=?) ORDER BY id',userId)
+}}
+
+export function replaceLocalBackup(userId:number,snapshot:LocalBackupSnapshot,images:ImportedImageUris){db.withTransactionSync(()=>{
+ db.runSync('DELETE FROM packing_lists WHERE user_id=?',userId);
+ db.runSync('DELETE FROM outfits WHERE user_id=?',userId);
+ db.runSync('DELETE FROM garments WHERE user_id=?',userId);
+ const garments=new Map<number,number>();
+ snapshot.garments.forEach(g=>{const r=db.runSync('INSERT INTO garments(user_id,name,category,subcategory,color,material,style,season,brand,price,archived,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',userId,g.name,g.category,g.subcategory,g.color,g.material,g.style,g.season,g.brand,g.price,g.archived,g.created_at);garments.set(g.id,Number(r.lastInsertRowId))});
+ snapshot.garment_images.forEach(image=>{const garmentId=garments.get(image.garment_id),paths=images[image.id];if(!garmentId||!paths)throw new Error('La copia de seguridad contiene una imagen inválida.');db.runSync('INSERT INTO garment_images(garment_id,original_uri,processed_uri,sort_order) VALUES(?,?,?,?)',garmentId,paths.original_uri,paths.processed_uri,image.sort_order)});
+ snapshot.wears.forEach(wear=>{const garmentId=garments.get(wear.garment_id);if(!garmentId)throw new Error('La copia de seguridad contiene una puesta inválida.');db.runSync('INSERT OR IGNORE INTO wears(garment_id,worn_on) VALUES(?,?)',garmentId,wear.worn_on)});
+ const outfits=new Map<number,number>();
+ snapshot.outfits.forEach(outfit=>{const r=db.runSync('INSERT INTO outfits(user_id,name,notes,created_at) VALUES(?,?,?,?)',userId,outfit.name,outfit.notes,outfit.created_at);outfits.set(outfit.id,Number(r.lastInsertRowId))});
+ snapshot.outfit_items.forEach(item=>{const outfitId=outfits.get(item.outfit_id),garmentId=garments.get(item.garment_id);if(!outfitId||!garmentId)throw new Error('La copia de seguridad contiene un look inválido.');db.runSync('INSERT INTO outfit_items(outfit_id,garment_id,slot,accessory_type,jewelry_type,layer_index,x,y,scale) VALUES(?,?,?,?,?,?,?,?,?)',outfitId,garmentId,item.slot,item.accessory_type,item.jewelry_type,item.layer_index,item.x,item.y,item.scale)});
+ const lists=new Map<number,number>();
+ snapshot.packing_lists.forEach(list=>{const r=db.runSync('INSERT INTO packing_lists(user_id,name,destination,starts_on,ends_on) VALUES(?,?,?,?,?)',userId,list.name,list.destination,list.starts_on,list.ends_on);lists.set(list.id,Number(r.lastInsertRowId))});
+ snapshot.packing_items.forEach(item=>{const listId=lists.get(item.packing_list_id),garmentId=garments.get(item.garment_id);if(!listId||!garmentId)throw new Error('La copia de seguridad contiene una maleta inválida.');db.runSync('INSERT INTO packing_items(packing_list_id,garment_id,packed) VALUES(?,?,?)',listId,garmentId,item.packed)});
+})}
+
 export const database={
  raw:db,
  createUser:(email:string,name:string,hash:string,salt:string)=>{const r=db.runSync('INSERT INTO users(email,display_name,password_hash,password_salt) VALUES(?,?,?,?)',email.toLowerCase(),name,hash,salt);return Number(r.lastInsertRowId)},
