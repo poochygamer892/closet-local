@@ -18,6 +18,15 @@ CREATE INDEX IF NOT EXISTS idx_packing_user ON packing_lists(user_id);
 CREATE INDEX IF NOT EXISTS idx_wears_garment ON wears(garment_id,worn_on);
 `)}
 
+/** A private, on-device owner for installations that do not use accounts. */
+export function ensureLocalOwner(){
+ const email='closet-local@this-device.invalid';
+ db.runSync('INSERT OR IGNORE INTO users(email,display_name,password_hash,password_salt) VALUES(?,?,?,?)',email,'Mi armario local','not-used','not-used');
+ const owner=db.getFirstSync<{id:number}>('SELECT id FROM users WHERE email=?',email);
+ if(!owner)throw new Error('No se pudo inicializar el armario local.');
+ return owner.id;
+}
+
 export const database={
  raw:db,
  createUser:(email:string,name:string,hash:string,salt:string)=>{const r=db.runSync('INSERT INTO users(email,display_name,password_hash,password_salt) VALUES(?,?,?,?)',email.toLowerCase(),name,hash,salt);return Number(r.lastInsertRowId)},
