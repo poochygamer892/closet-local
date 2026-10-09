@@ -40,7 +40,7 @@ public final class ClosetLocalAIModule: Module {
           try data.write(to: outputURL, options: .atomic)
           promise.resolve(outputURL.absoluteString)
         } catch {
-          promise.reject("E_BACKGROUND", error.localizedDescription, error)
+          promise.reject("E_BACKGROUND", error.localizedDescription)
         }
       }
     }
@@ -60,7 +60,7 @@ public final class ClosetLocalAIModule: Module {
           }
           promise.resolve(["labels": labels, "dominantColor": self.dominantColor(image), "available": true])
         } catch {
-          promise.reject("E_ANALYZE", error.localizedDescription, error)
+          promise.reject("E_ANALYZE", error.localizedDescription)
         }
       }
     }
