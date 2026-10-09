@@ -3,6 +3,8 @@ import Vision
 import UIKit
 import CoreImage
 import ImageIO
+import CoreML
+import StableDiffusion
 
 public final class ClosetLocalAIModule: Module {
   private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -96,6 +98,38 @@ public final class ClosetLocalAIModule: Module {
           promise.resolve(["labels": labels, "dominantColor": self.dominantColor(image), "available": true])
         } catch {
           promise.reject("E_ANALYZE", error.localizedDescription)
+        }
+      }
+    }
+
+    AsyncFunction("generateFlatLay") { (source: String, destination: String, prompt: String, promise: Promise) in
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          guard #available(iOS 16.2, *) else { throw ClosetLocalAIError.unsupported("La reconstrucción local requiere iOS 16.2 o posterior.") }
+          guard let resources = Bundle.main.resourceURL?.appendingPathComponent("StableDiffusion"), FileManager.default.fileExists(atPath: resources.path) else {
+            throw ClosetLocalAIError.processing("El modelo local de reconstrucción no está incluido en esta instalación.")
+          }
+          let input = try self.loadImage(source)
+          let configuration = MLModelConfiguration()
+          configuration.computeUnits = .cpuAndNeuralEngine
+          var generation = PipelineConfiguration(prompt: prompt)
+          generation.startingImage = input
+          generation.strength = 0.42
+          generation.stepCount = 24
+          generation.guidanceScale = 6.5
+          generation.negativePrompt = "person, body, face, hands, mannequin, hanger, room, background, text, watermark"
+          let pipeline = try StableDiffusionPipeline(resourcesAt: resources, controlNet: [], configuration: configuration, disableSafety: true, reduceMemory: true)
+          try pipeline.loadResources()
+          guard let output = try pipeline.generateImages(configuration: generation, progressHandler: { _ in true }).first ?? nil else {
+            throw ClosetLocalAIError.processing("El modelo no pudo reconstruir la prenda.")
+          }
+          guard let data = UIImage(cgImage: output).pngData() else { throw ClosetLocalAIError.processing("No se pudo guardar la prenda generada.") }
+          let outputURL = self.fileURL(destination)
+          try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+          try data.write(to: outputURL, options: .atomic)
+          promise.resolve(outputURL.absoluteString)
+        } catch {
+          promise.reject("E_FLAT_LAY", error.localizedDescription)
         }
       }
     }

@@ -94,8 +94,11 @@ async function extractWornPieces(uri:string,userId:number):Promise<OutfitExtract
  for(const band of bands){
   const crop=await ImageManipulator.manipulateAsync(uri,[band.crop],{format:ImageManipulator.SaveFormat.PNG,compress:1});
   const original=await persistOriginal(crop.uri,userId);
-  const processed=await removeBackground(original,userId);
   const suggested=await analyzeGarment(original);
+  const destination=await processedPath(userId);
+  const description=[suggested.color,suggested.subcategory,band.name].filter(Boolean).join(', ').toLowerCase();
+  const prompt=`a single ${description || 'clothing item'} laid flat on a clean white studio background, centered product photography, faithful colors and visible pattern, no person`;
+  const processed=NativeAI?.generateFlatLay?await NativeAI.generateFlatLay(original,destination,prompt):await removeBackground(original,userId);
   pieces.push({id:band.id,original_uri:original,processed_uri:processed,draft:{...suggested,category:band.category,name:suggested.name==='Nueva prenda'?band.name:suggested.name,subcategory:suggested.subcategory||band.name}});
  }
  return pieces;

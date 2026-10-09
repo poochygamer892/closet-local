@@ -25,6 +25,17 @@ jobs:
       - name: Generate native iOS project
         run: npx expo prebuild --platform ios --clean --no-install
 
+      - name: Add Core ML diffusion runtime
+        run: ruby scripts/add-stable-diffusion-package.rb ios/ClosetLocal.xcodeproj
+
+      - name: Download bundled local diffusion model
+        run: |
+          python3 -m pip install --quiet huggingface_hub
+          python3 - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download('apple/coreml-stable-diffusion-2-1-base', allow_patterns=['split_einsum/compiled/**'], local_dir='build/StableDiffusion')
+          PY
+
       - name: Install iOS dependencies
         run: |
           cd ios
@@ -50,6 +61,7 @@ jobs:
         run: |
           APP_PATH="build/DerivedData/Build/Products/Release-iphoneos/ClosetLocal.app"
           test -d "$APP_PATH"
+          cp -R build/StableDiffusion/split_einsum/compiled "$APP_PATH/StableDiffusion"
           mkdir -p build/Payload
           cp -R "$APP_PATH" build/Payload/
           cd build
