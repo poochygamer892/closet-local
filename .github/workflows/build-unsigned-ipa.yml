@@ -30,8 +30,9 @@ jobs:
 
       - name: Download bundled local diffusion model
         run: |
-          python3 -m pip install --quiet huggingface_hub
-          python3 - <<'PY'
+          python3 -m venv build/hf-venv
+          build/hf-venv/bin/pip install --quiet huggingface_hub
+          build/hf-venv/bin/python - <<'PY'
           from huggingface_hub import snapshot_download
           snapshot_download('apple/coreml-stable-diffusion-2-1-base', allow_patterns=['split_einsum/compiled/**'], local_dir='build/StableDiffusion')
           PY
