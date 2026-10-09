@@ -35,17 +35,15 @@ jobs:
 
       - name: Pin compatible Kotlin version
         run: |
-          echo 'android.kotlinVersion=1.9.25' >> android/gradle.properties
-          echo 'suppressKotlinVersionCompatibilityCheck=true' >> android/gradle.properties
-          sed -i -E "s/^[[:space:]]*kotlinVersion = .*/        kotlinVersion = '1.9.25'/" android/build.gradle
-          sed -i "s#org.jetbrains.kotlin:kotlin-gradle-plugin')#org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.25')#" android/build.gradle
+          echo 'android.kotlinVersion=1.9.24' >> android/gradle.properties
+          sed -i -E "s/^[[:space:]]*kotlinVersion = .*/        kotlinVersion = '1.9.24'/" android/build.gradle
           grep -n "kotlin" android/build.gradle
 
       - name: Build release APK
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew --no-daemon --stacktrace -Pandroid.kotlinVersion=1.9.25 assembleRelease
+          ./gradlew --no-daemon --stacktrace -Pandroid.kotlinVersion=1.9.24 assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
