@@ -45,6 +45,41 @@ public final class ClosetLocalAIModule: Module {
       }
     }
 
+    // Vision can distinguish separate salient objects in a flat-lay.  This is
+    // deliberately not used for a person wearing an outfit: in that case iOS
+    // correctly returns one person instance, not several garments.
+    AsyncFunction("extractForegroundInstances") { (source: String, destinationPrefix: String, promise: Promise) in
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          guard #available(iOS 17.0, *) else {
+            throw ClosetLocalAIError.unsupported("Separar prendas requiere iOS 17 o posterior.")
+          }
+          let image = try self.loadImage(source)
+          let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
+          let request = VNGenerateForegroundInstanceMaskRequest()
+          try handler.perform([request])
+          guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
+            throw ClosetLocalAIError.processing("No se detectaron prendas separadas en la fotografía.")
+          }
+          let prefixURL = self.fileURL(destinationPrefix)
+          try FileManager.default.createDirectory(at: prefixURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+          var outputs: [String] = []
+          for instance in observation.allInstances {
+            let mask = try observation.generateScaledMaskForImage(forInstances: IndexSet(integer: Int(instance)), from: handler)
+            let cutout = try self.composite(image: image, mask: mask)
+            guard let data = UIImage(cgImage: cutout).pngData() else { continue }
+            let outputURL = prefixURL.deletingPathExtension().appendingPathExtension("piece-\(instance).png")
+            try data.write(to: outputURL, options: .atomic)
+            outputs.append(outputURL.absoluteString)
+          }
+          guard !outputs.isEmpty else { throw ClosetLocalAIError.processing("No se pudieron extraer las prendas.") }
+          promise.resolve(outputs)
+        } catch {
+          promise.reject("E_INSTANCES", error.localizedDescription)
+        }
+      }
+    }
+
     AsyncFunction("analyze") { (source: String, promise: Promise) in
       DispatchQueue.global(qos: .userInitiated).async {
         do {

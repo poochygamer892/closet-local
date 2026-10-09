@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
-import {Image} from 'react-native';
 import NativeAI,{type VisionAnalysis} from '../../modules/closet-local-ai/src';
 import {persistOriginal,processedPath} from './storage';
 import type {DraftAnalysis,Slot} from '../types';
@@ -77,32 +76,24 @@ export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
 }
 
 export type OutfitExtraction={id:string;original_uri:string;processed_uri:string;draft:DraftAnalysis};
-
-const outfitZones:{id:string;category:Slot;name:string;crop:(width:number,height:number)=>ImageManipulator.ActionCrop}[]=[
- {id:'accessory',category:'accessory',name:'Accesorio visible',crop:(width,height)=>({crop:{originX:Math.round(width*.2),originY:Math.round(height*.02),width:Math.round(width*.6),height:Math.round(height*.22)}})},
- {id:'top',category:'top',name:'Parte de arriba',crop:(width,height)=>({crop:{originX:Math.round(width*.1),originY:Math.round(height*.19),width:Math.round(width*.8),height:Math.round(height*.34)}})},
- {id:'bottom',category:'bottom',name:'Parte de abajo',crop:(width,height)=>({crop:{originX:Math.round(width*.14),originY:Math.round(height*.49),width:Math.round(width*.72),height:Math.round(height*.3)}})},
- {id:'shoes',category:'shoes',name:'Calzado',crop:(width,height)=>({crop:{originX:Math.round(width*.12),originY:Math.round(height*.78),width:Math.round(width*.76),height:Math.max(1,Math.round(height*.2))}})}
-];
-
-function imageSize(uri:string){return new Promise<{width:number;height:number}>((resolve,reject)=>Image.getSize(uri,(width,height)=>resolve({width,height}),reject))}
+export type OutfitPhotoKind='flat'|'worn';
 
 /**
- * Local beta: it preserves the visible pixels of a full-body outfit photograph,
- * separates its usual zones, then applies the same on-device foreground removal
- * and label proposal used for individual pieces. It deliberately never invents
- * hidden details of a garment.
+ * Separate pieces in a flat-lay using individual Vision foreground instances.
+ * A worn outfit cannot use foreground extraction: Vision correctly sees one
+ * person, not individual clothes, so it is reserved for the local parser.
  */
-export async function extractOutfitPieces(uri:string,userId:number):Promise<OutfitExtraction[]>{
- const {width,height}=await imageSize(uri);
- if(height<width*1.05)throw new Error('Usa una foto vertical donde se vea el outfit completo, de cabeza a zapatos.');
+export async function extractOutfitPieces(uri:string,userId:number,kind:OutfitPhotoKind):Promise<OutfitExtraction[]>{
+ if(kind==='worn')throw new Error('La detección de ropa llevada necesita el analizador por partes. Ya no se usan franjas fijas porque convertían a la persona en una prenda. Usa por ahora “Prendas sobre cama/suelo” o añade las piezas por separado.');
+ if(!NativeAI?.extractForegroundInstances)throw new Error('Actualiza a la versión con detector local de prendas separadas.');
+ const prefix=await processedPath(userId);
+ const instanceUris=await NativeAI.extractForegroundInstances(uri,prefix);
+ if(!instanceUris.length)throw new Error('No se han encontrado prendas separadas. Deja espacio entre ellas y prueba con un fondo liso.');
  const pieces:OutfitExtraction[]=[];
- for(const zone of outfitZones){
-  const crop=await ImageManipulator.manipulateAsync(uri,[zone.crop(width,height)],{format:ImageManipulator.SaveFormat.PNG,compress:1});
-  const original=await persistOriginal(crop.uri,userId);
-  const processed=await removeBackground(original,userId);
+ for(const [index,instanceUri] of instanceUris.entries()){
+  const original=await persistOriginal(instanceUri,userId);
   const suggested=await analyzeGarment(original);
-  pieces.push({id:zone.id,original_uri:original,processed_uri:processed,draft:{...suggested,category:zone.category,name:suggested.name==='Nueva prenda'?zone.name:suggested.name,subcategory:suggested.subcategory||zone.name}});
+  pieces.push({id:`flat-${index}`,original_uri:original,processed_uri:instanceUri,draft:suggested});
  }
  return pieces;
 }
