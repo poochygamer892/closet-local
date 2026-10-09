@@ -10,6 +10,7 @@ import {backupSummary,readLocalBackup,restoreLocalBackup,shareLocalBackup} from 
 import {ClosetScreen} from './src/screens/ClosetScreen';
 import {LooksScreen} from './src/screens/LooksScreen';
 import {AddGarmentScreen} from './src/screens/AddGarmentScreen';
+import {OutfitImportScreen} from './src/screens/OutfitImportScreen';
 
 type Tab='closet'|'looks'|'device';
 
@@ -19,6 +20,7 @@ export default function App(){
  const [retry,setRetry]=useState(0);
  const [tab,setTab]=useState<Tab>('looks');
  const [adding,setAdding]=useState(false);
+ const [outfitImport,setOutfitImport]=useState(false);
  const [refresh,setRefresh]=useState(0);
 
  useEffect(()=>{
@@ -42,7 +44,9 @@ export default function App(){
  return <SafeAreaProvider><StatusBar style="dark"/><View style={s.app}>
   {tab==='closet'?<ClosetScreen userId={userId} refresh={refresh}/>:tab==='looks'?<LooksScreen userId={userId} refresh={refresh}/>:<DeviceScreen userId={userId} restored={()=>setRefresh(x=>x+1)}/>} 
   <View style={s.nav}>{([['closet','Armario','▢'],['looks','Stylist','✦'],['device','Local','●']]as const).map(([id,label,icon])=><Pressable key={id} onPress={()=>setTab(id)} style={[s.navItem,tab===id&&s.navActive]}><Text style={[s.icon,tab===id&&s.active]}>{icon}</Text><Text style={[s.navText,tab===id&&s.active]}>{label}</Text></Pressable>)}<Pressable style={s.add} onPress={()=>setAdding(true)}><Text style={s.addText}>＋</Text></Pressable></View>
-  <Modal visible={adding} animationType="slide"><AddGarmentScreen userId={userId} close={()=>setAdding(false)} saved={()=>setRefresh(x=>x+1)}/></Modal>
+  <Pressable accessibilityLabel="Importar prendas desde un outfit" onPress={()=>setOutfitImport(true)} style={{position:'absolute',right:22,bottom:89,width:48,height:48,borderRadius:24,backgroundColor:'#F2F2F5',alignItems:'center',justifyContent:'center',shadowColor:'#000',shadowOpacity:.1,shadowRadius:9}}><Text style={{fontSize:18}}>▧</Text></Pressable>
+  <Modal visible={adding} animationType="slide"><AddGarmentScreen userId={userId} close={()=>setAdding(false)} saved={()=>setRefresh(x=>x+1)} importOutfit={()=>{setAdding(false);setOutfitImport(true)}}/></Modal>
+  <Modal visible={outfitImport} animationType="slide"><OutfitImportScreen userId={userId} close={()=>setOutfitImport(false)} saved={()=>setRefresh(x=>x+1)}/></Modal>
  </View></SafeAreaProvider>;
 }
 

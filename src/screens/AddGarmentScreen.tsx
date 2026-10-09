@@ -9,7 +9,7 @@ import{C}from'../theme/tokens';
 
 const categories:{id:Slot;label:string}[]=[{id:'top',label:'Arriba'},{id:'bottom',label:'Abajo'},{id:'shoes',label:'Calzado'},{id:'accessory',label:'Accesorio'}];
 
-export function AddGarmentScreen({userId,close,saved}:{userId:number;close:()=>void;saved:()=>void}){
+export function AddGarmentScreen({userId,close,saved,importOutfit}:{userId:number;close:()=>void;saved:()=>void;importOutfit:()=>void}){
  const[uris,setUris]=useState<string[]>([]);
  const[draft,setDraft]=useState<DraftAnalysis|null>(null);
  const[processed,setProcessed]=useState<{original_uri:string;processed_uri:string}[]>([]);
