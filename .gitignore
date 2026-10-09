@@ -1,5 +1,7 @@
 node_modules/
 .expo/
+/android/
+/ios/
 build/
 build-ios/
 *.ipa

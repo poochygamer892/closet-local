@@ -2,7 +2,7 @@
   "expo":{
     "name":"Closet Local","slug":"closet-local","scheme":"closetlocal","version":"0.3.0","orientation":"portrait","userInterfaceStyle":"light",
     "ios":{"bundleIdentifier":"com.local.closet","buildNumber":"8","supportsTablet":true,"infoPlist":{"NSPhotoLibraryUsageDescription":"Closet Local necesita tus fotos para añadir prendas.","NSCameraUsageDescription":"Closet Local utiliza la cámara para fotografiar tus prendas.","ITSAppUsesNonExemptEncryption":false}},
-    "android":{"package":"com.local.closet","permissions":["CAMERA","READ_MEDIA_IMAGES"],"adaptiveIcon":{"backgroundColor":"#191B18"}},
+    "android":{"package":"com.local.closet","permissions":["CAMERA","READ_MEDIA_IMAGES"],"blockedPermissions":["android.permission.INTERNET"],"adaptiveIcon":{"backgroundColor":"#191B18"}},
     "plugins":["expo-secure-store",["expo-image-picker",{"photosPermission":"Selecciona fotos de tus prendas sin subirlas a Internet.","cameraPermission":"Fotografía tus prendas para guardarlas localmente."}],"expo-sqlite"],
     "assetBundlePatterns":["assets/models/*","assets/icons/*"]
   }
