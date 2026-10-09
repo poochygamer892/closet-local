@@ -1,0 +1,10 @@
+{
+  "name": "closet-local-ai",
+  "version": "0.3.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}

@@ -1,29 +1,81 @@
-import type {DraftAnalysis} from '../types';
+import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
+import NativeAI,{type VisionAnalysis} from '../../modules/closet-local-ai/src';
+import {processedPath} from './storage';
+import type {DraftAnalysis,Slot} from '../types';
 
-/*
- * The first sideload build exited before React could render.  The likely
- * culprit is the experimental ONNX native runtime being initialised as part
- * of the app bundle even though no model is included yet.  Keep the public
- * interface stable, but make the release build independent of that native
- * module.  The image is stored locally and the user can edit every field.
- *
- * A model-enabled build will live behind an explicit feature flag once its
- * weights and iOS runtime have been validated on a physical device.
- */
-const manualDraft=():DraftAnalysis=>({name:'Nueva prenda',category:'top',subcategory:'',color:'',material:'',style:'',season:'',brand:'',confidence:0});
+type LocalTag={identifier:string;confidence:number};
 
-export async function modelStatus(){return{background:false,tags:false}}
+const emptyDraft=():DraftAnalysis=>({name:'Nueva prenda',category:'top',subcategory:'',color:'',material:'',style:'',season:'',brand:'',confidence:0});
 
-export async function removeBackground(uri:string,_userId:number){
-  // The original remains on-device and is used as the preview until the
-  // optional, tested segmentation runtime is enabled.
-  return uri;
+function normalized(labels:LocalTag[]){return labels.map(item=>item.identifier.toLowerCase()).join(' ')}
+function includes(text:string,...terms:string[]){return terms.some(term=>text.includes(term))}
+
+function inferCategory(text:string):{category:Slot;subcategory:string;name:string}{
+ if(includes(text,'sneaker','shoe','boot','sandal','footwear','loafer','heel'))return{category:'shoes',subcategory:'Zapatillas',name:'Zapatillas'};
+ if(includes(text,'jean','trouser','pant','short','skirt','leggin'))return{category:'bottom',subcategory:includes(text,'jean')?'Vaqueros':'Pantalón',name:includes(text,'jean')?'Vaqueros':'Pantalón'};
+ if(includes(text,'hat','cap','beanie','scarf','bag','belt','watch','ring','necklace','bracelet','sock','glasses')){
+  const subtype=includes(text,'sock')?'Calcetines':includes(text,'hat','cap','beanie')?'Gorra / gorro':includes(text,'scarf')?'Bufanda':includes(text,'ring')?'Anillo':includes(text,'necklace')?'Collar':includes(text,'bracelet')?'Pulsera':'Accesorio';
+  return{category:'accessory',subcategory:subtype,name:subtype};
+ }
+ if(includes(text,'jacket','coat','blazer','hoodie','sweater','cardigan','shirt','t-shirt','top','dress')){
+  const subtype=includes(text,'jacket')?'Chaqueta':includes(text,'coat')?'Abrigo':includes(text,'hoodie')?'Sudadera':includes(text,'sweater','cardigan')?'Jersey':includes(text,'t-shirt')?'Camiseta':includes(text,'shirt')?'Camisa':includes(text,'dress')?'Vestido':'Parte de arriba';
+  return{category:'top',subcategory:subtype,name:subtype};
+ }
+ return{category:'top',subcategory:'',name:'Nueva prenda'};
 }
 
-export async function analyzeGarment(_uri:string):Promise<DraftAnalysis>{
-  return manualDraft();
+function inferMaterial(text:string){
+ if(includes(text,'denim','jean'))return'Denim';
+ if(includes(text,'leather','suede'))return'Cuero';
+ if(includes(text,'wool'))return'Lana';
+ if(includes(text,'cotton'))return'Algodón';
+ if(includes(text,'linen'))return'Lino';
+ if(includes(text,'silk'))return'Seda';
+ return'';
 }
 
+function inferStyle(text:string){
+ if(includes(text,'sneaker','hoodie','cap','streetwear'))return'Streetwear';
+ if(includes(text,'blazer','loafer','shirt','coat'))return'Clásico';
+ if(includes(text,'running','sport','athletic'))return'Deportivo';
+ return'Casual';
+}
+
+function inferSeason(text:string){
+ if(includes(text,'coat','jacket','sweater','hoodie','scarf','boot'))return'Otoño / invierno';
+ if(includes(text,'short','sandal','t-shirt','linen'))return'Primavera / verano';
+ return'Todo el año';
+}
+
+export async function modelStatus(){
+ try{return await NativeAI?.status()??{foreground:false,tags:false,platform:'not-installed'}}catch{return{foreground:false,tags:false,platform:'not-available'}}
+}
+
+/** Runs inside iOS Vision. A safe local PNG copy is used when Vision cannot isolate foreground. */
+export async function removeBackground(uri:string,userId:number){
+ const destination=await processedPath(userId);
+ if(NativeAI){
+  try{return await NativeAI.removeBackground(uri,destination)}catch(error){console.info('Local foreground extraction unavailable; keeping local image.',error)}
+ }
+ const rendered=await ImageManipulator.manipulateAsync(uri,[],{format:ImageManipulator.SaveFormat.PNG,compress:1});
+ await FileSystem.copyAsync({from:rendered.uri,to:destination});
+ return destination;
+}
+
+export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
+ const fallback=emptyDraft();
+ if(!NativeAI)return fallback;
+ try{
+  const response:VisionAnalysis=await NativeAI.analyze(uri);
+  const labels=response.labels||[];
+  const text=normalized(labels);
+  const category=inferCategory(text);
+  return{name:category.name,category:category.category,subcategory:category.subcategory,color:response.dominantColor||'',material:inferMaterial(text),style:inferStyle(text),season:inferSeason(text),brand:'',confidence:labels[0]?.confidence||0};
+ }catch(error){console.info('Local Vision labels unavailable.',error);return fallback}
+}
+
+/** The model is embedded in the iPhone build; remote model downloads are intentionally unsupported. */
 export async function installModelFromUri(_kind:'background'|'tags',_source:string){
-  throw new Error('La IA local se activará en una compilación posterior validada para iPhone.');
+ throw new Error('Closet Local no descarga modelos: la IA se incluye y se ejecuta dentro del dispositivo.');
 }

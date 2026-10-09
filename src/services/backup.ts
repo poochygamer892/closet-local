@@ -4,7 +4,7 @@ import {database,localBackupSnapshot,replaceLocalBackup,type ImportedImageUris,t
 import {backupPath,restoredImagePath} from './storage';
 
 const FORMAT='closet-local-backup';
-const VERSION=1;
+const VERSION=2;
 
 type BackupImageData={original_base64:string;original_extension:string;processed_base64:string;processed_extension:string};
 export type LocalBackupFile={format:string;version:number;created_at:string;snapshot:LocalBackupSnapshot;images:Record<string,BackupImageData>};
@@ -15,9 +15,9 @@ function isArray(value:unknown){return Array.isArray(value)}
 
 function validate(value:unknown):LocalBackupFile{
  const backup=value as Partial<LocalBackupFile>;
- if(backup?.format!==FORMAT||backup.version!==VERSION||!backup.snapshot||!backup.images)throw new Error('Este archivo no es una copia válida de Closet Local.');
+ if(backup?.format!==FORMAT||![1,VERSION].includes(Number(backup.version))||!backup.snapshot||!backup.images)throw new Error('Este archivo no es una copia válida de Closet Local.');
  const snapshot=backup.snapshot as LocalBackupSnapshot;
- if(!isArray(snapshot.garments)||!isArray(snapshot.garment_images)||!isArray(snapshot.wears)||!isArray(snapshot.outfits)||!isArray(snapshot.outfit_items)||!isArray(snapshot.packing_lists)||!isArray(snapshot.packing_items))throw new Error('La copia de seguridad está incompleta.');
+ if(!isArray(snapshot.garments)||!isArray(snapshot.garment_images)||!isArray(snapshot.wears)||!isArray(snapshot.outfits)||!isArray(snapshot.outfit_items))throw new Error('La copia de seguridad está incompleta.');
  return backup as LocalBackupFile;
 }
 
@@ -61,7 +61,7 @@ export async function readLocalBackup(uri:string){
  try{return validate(JSON.parse(text))}catch(error){if(error instanceof Error)throw error;throw new Error('No se pudo leer la copia de seguridad.');}
 }
 
-export function backupSummary(backup:LocalBackupFile){return{garments:backup.snapshot.garments.length,outfits:backup.snapshot.outfits.length,packingLists:backup.snapshot.packing_lists.length}}
+export function backupSummary(backup:LocalBackupFile){return{garments:backup.snapshot.garments.length,outfits:backup.snapshot.outfits.length}}
 
 export async function restoreLocalBackup(userId:number,backup:LocalBackupFile){
  const materialised:ImportedImageUris={};

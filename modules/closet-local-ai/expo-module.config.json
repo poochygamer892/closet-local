@@ -1,0 +1,8 @@
+{
+  "name": "closet-local-ai",
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["ClosetLocalAIModule"],
+    "podspecPath": "ClosetLocalAI.podspec"
+  }
+}
