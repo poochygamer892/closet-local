@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import {Image} from 'react-native';
 import NativeAI,{type VisionAnalysis} from '../../modules/closet-local-ai/src';
 import {persistOriginal,processedPath} from './storage';
 import type {DraftAnalysis,Slot} from '../types';
@@ -78,13 +79,35 @@ export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
 export type OutfitExtraction={id:string;original_uri:string;processed_uri:string;draft:DraftAnalysis};
 export type OutfitPhotoKind='flat'|'worn';
 
+function imageSize(uri:string){return new Promise<{width:number;height:number}>((resolve,reject)=>Image.getSize(uri,(width,height)=>resolve({width,height}),reject))}
+
+async function extractWornPieces(uri:string,userId:number):Promise<OutfitExtraction[]>{
+ const {width,height}=await imageSize(uri);
+ // These are conservative body bands. They are never used to invent a whole
+ // garment: each saved picture is a transparent extraction of its visible area.
+ const bands:{id:string;category:Slot;name:string;crop:ImageManipulator.ActionCrop}[]=[
+  {id:'worn-top',category:'top',name:'Parte de arriba visible',crop:{crop:{originX:Math.round(width*.08),originY:Math.round(height*.14),width:Math.round(width*.84),height:Math.max(1,Math.round(height*.39))}}},
+  {id:'worn-bottom',category:'bottom',name:'Parte de abajo visible',crop:{crop:{originX:Math.round(width*.12),originY:Math.round(height*.49),width:Math.round(width*.76),height:Math.max(1,Math.round(height*.31))}}},
+  {id:'worn-shoes',category:'shoes',name:'Calzado visible',crop:{crop:{originX:Math.round(width*.1),originY:Math.round(height*.77),width:Math.round(width*.8),height:Math.max(1,Math.round(height*.22))}}}
+ ];
+ const pieces:OutfitExtraction[]=[];
+ for(const band of bands){
+  const crop=await ImageManipulator.manipulateAsync(uri,[band.crop],{format:ImageManipulator.SaveFormat.PNG,compress:1});
+  const original=await persistOriginal(crop.uri,userId);
+  const processed=await removeBackground(original,userId);
+  const suggested=await analyzeGarment(original);
+  pieces.push({id:band.id,original_uri:original,processed_uri:processed,draft:{...suggested,category:band.category,name:suggested.name==='Nueva prenda'?band.name:suggested.name,subcategory:suggested.subcategory||band.name}});
+ }
+ return pieces;
+}
+
 /**
  * Separate pieces in a flat-lay using individual Vision foreground instances.
  * A worn outfit cannot use foreground extraction: Vision correctly sees one
  * person, not individual clothes, so it is reserved for the local parser.
  */
 export async function extractOutfitPieces(uri:string,userId:number,kind:OutfitPhotoKind):Promise<OutfitExtraction[]>{
- if(kind==='worn')throw new Error('La detección de ropa llevada necesita el analizador por partes. Ya no se usan franjas fijas porque convertían a la persona en una prenda. Usa por ahora “Prendas sobre cama/suelo” o añade las piezas por separado.');
+ if(kind==='worn')return extractWornPieces(uri,userId);
  if(!NativeAI?.extractForegroundInstances)throw new Error('Actualiza a la versión con detector local de prendas separadas.');
  const prefix=await processedPath(userId);
  const instanceUris=await NativeAI.extractForegroundInstances(uri,prefix);
