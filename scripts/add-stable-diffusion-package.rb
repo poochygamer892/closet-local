@@ -1,9 +1,10 @@
 require 'xcodeproj'
 
 project_path = ARGV.fetch(0)
+target_name = ARGV.fetch(1, 'ClosetLocal')
 project = Xcodeproj::Project.open(project_path)
-target = project.targets.find { |item| item.name == 'ClosetLocal' }
-abort 'ClosetLocal target not found' unless target
+target = project.targets.find { |item| item.name == target_name }
+abort "#{target_name} target not found" unless target
 target.build_configurations.each { |configuration| configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.2' }
 
 url = 'https://github.com/apple/ml-stable-diffusion.git'
