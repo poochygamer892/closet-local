@@ -42,9 +42,6 @@ jobs:
           cd ios
           pod install --repo-update
 
-      - name: Link diffusion runtime to local AI module
-        run: ruby scripts/add-stable-diffusion-package.rb ios/Pods/Pods.xcodeproj ClosetLocalAI
-
       - name: Build unsigned app
         run: |
           mkdir -p build
