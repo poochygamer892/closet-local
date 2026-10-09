@@ -33,6 +33,9 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --clean --no-install
 
+      - name: Pin compatible Kotlin version
+        run: echo 'android.kotlinVersion=1.9.25' >> android/gradle.properties
+
       - name: Build release APK
         run: |
           chmod +x android/gradlew
