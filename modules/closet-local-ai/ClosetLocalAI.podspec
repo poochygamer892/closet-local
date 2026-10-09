@@ -13,5 +13,5 @@ Pod::Spec.new do |s|
   s.source         = { :git => 'https://example.invalid/closet-local-ai.git', :tag => s.version.to_s }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
-  s.source_files = 'ios/**/*.{h,m,mm,swift}'
+  s.source_files = 'ios/ClosetLocalAIModule.swift'
 end

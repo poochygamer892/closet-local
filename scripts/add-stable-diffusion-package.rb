@@ -6,6 +6,11 @@ project = Xcodeproj::Project.open(project_path)
 target = project.targets.find { |item| item.name == target_name }
 abort "#{target_name} target not found" unless target
 target.build_configurations.each { |configuration| configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.2' }
+if target_name == 'ClosetLocal'
+  bridge_path = File.expand_path('../modules/closet-local-ai/ios/LocalDiffusionBridge.swift', __dir__)
+  file_ref = project.files.find { |item| item.path == bridge_path } || project.main_group.new_file(bridge_path)
+  target.add_file_references([file_ref]) unless target.source_build_phase.files_references.include?(file_ref)
+end
 
 url = 'https://github.com/apple/ml-stable-diffusion.git'
 package = project.root_object.package_references.find { |item| item.respond_to?(:repositoryURL) && item.repositoryURL == url }
