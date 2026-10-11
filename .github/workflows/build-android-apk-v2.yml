@@ -3,7 +3,7 @@ name: Build Android APK (standalone)
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, upload]
     paths:
       - '.github/workflows/build-android-apk-v2.yml'
 
