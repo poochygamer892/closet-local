@@ -1,8 +1,11 @@
 {
   "name": "closet-local-ai",
-  "platforms": ["ios"],
+  "platforms": ["ios", "android"],
   "ios": {
     "modules": ["ClosetLocalAIModule"],
     "podspecPath": "ClosetLocalAI.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.closetlocalai.ClosetLocalAIModule"]
   }
 }

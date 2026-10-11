@@ -76,12 +76,15 @@ export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
  }catch(error){console.info('Local Vision labels unavailable.',error);return fallback}
 }
 
-export type OutfitExtraction={id:string;original_uri:string;processed_uri:string;draft:DraftAnalysis};
+export type OutfitImage={original_uri:string;processed_uri:string};
+export type OutfitExtraction={id:string;original_uri:string;processed_uri:string;images?:OutfitImage[];draft:DraftAnalysis};
 export type OutfitPhotoKind='flat'|'worn';
 
 function imageSize(uri:string){return new Promise<{width:number;height:number}>((resolve,reject)=>Image.getSize(uri,(width,height)=>resolve({width,height}),reject))}
 
-async function extractWornPieces(uri:string,userId:number):Promise<OutfitExtraction[]>{
+async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtraction[]>{
+ const uri=uris[0];
+ if(!uri)throw new Error('Selecciona al menos una vista del outfit.');
  const {width,height}=await imageSize(uri);
  // These are conservative body bands. They are never used to invent a whole
  // garment: each saved picture is a transparent extraction of its visible area.
@@ -92,14 +95,30 @@ async function extractWornPieces(uri:string,userId:number):Promise<OutfitExtract
  ];
  const pieces:OutfitExtraction[]=[];
  for(const band of bands){
-  const crop=await ImageManipulator.manipulateAsync(uri,[band.crop],{format:ImageManipulator.SaveFormat.PNG,compress:1});
-  const original=await persistOriginal(crop.uri,userId);
-  const suggested=await analyzeGarment(original);
-  const destination=await processedPath(userId);
-  const description=[suggested.color,suggested.subcategory,band.name].filter(Boolean).join(', ').toLowerCase();
-  const prompt=`a single ${description || 'clothing item'} laid flat on a clean white studio background, centered product photography, faithful colors and visible pattern, no person`;
-  const processed=NativeAI?.generateFlatLay?await NativeAI.generateFlatLay(original,destination,prompt):await removeBackground(original,userId);
-  pieces.push({id:band.id,original_uri:original,processed_uri:processed,draft:{...suggested,category:band.category,name:suggested.name==='Nueva prenda'?band.name:suggested.name,subcategory:suggested.subcategory||band.name}});
+  const images:OutfitImage[]=[];
+  let firstDraft:DraftAnalysis|undefined;
+  for(const viewUri of uris){
+   const viewSize=await imageSize(viewUri);
+   const scaleX=viewSize.width/width;
+   const scaleY=viewSize.height/height;
+   const cropAction=band.crop.crop;
+   const crop=await ImageManipulator.manipulateAsync(viewUri,[{crop:{originX:Math.max(0,Math.round(cropAction.originX*scaleX)),originY:Math.max(0,Math.round(cropAction.originY*scaleY)),width:Math.max(1,Math.min(viewSize.width-Math.round(cropAction.originX*scaleX),Math.round(cropAction.width*scaleX))),height:Math.max(1,Math.min(viewSize.height-Math.round(cropAction.originY*scaleY),Math.round(cropAction.height*scaleY)))}}],{format:ImageManipulator.SaveFormat.PNG,compress:1});
+   const original=await persistOriginal(crop.uri,userId);
+   const suggested=await analyzeGarment(original);
+   if(!firstDraft)firstDraft=suggested;
+   const destination=await processedPath(userId);
+   const description=[suggested.color,suggested.subcategory,band.name].filter(Boolean).join(', ').toLowerCase();
+   const prompt=`one isolated ${description || 'garment'} only, reconstruct the clothing item from the reference crop, laid completely flat on a clean white studio background, centered ecommerce product photograph, preserve the exact colors, silhouette, material, logos and visible pattern, no person, no body, no head, no hands, no mannequin, no hanger, no room`;
+   // iPhone uses the embedded diffusion generator. Android keeps the same
+   // multi-piece workflow and falls back to its dependency-free local cutout
+   // until an on-device diffusion runtime is bundled there as well.
+   const processed=NativeAI?.generateFlatLay
+    ? await NativeAI.generateFlatLay(original,destination,prompt)
+    : await removeBackground(original,userId);
+   images.push({original_uri:original,processed_uri:processed});
+  }
+  const draft=firstDraft||emptyDraft();
+  pieces.push({id:band.id,original_uri:images[0].original_uri,processed_uri:images[0].processed_uri,images,draft:{...draft,category:band.category,name:draft.name==='Nueva prenda'?band.name:draft.name,subcategory:draft.subcategory||band.name}});
  }
  return pieces;
 }
@@ -109,17 +128,21 @@ async function extractWornPieces(uri:string,userId:number):Promise<OutfitExtract
  * A worn outfit cannot use foreground extraction: Vision correctly sees one
  * person, not individual clothes, so it is reserved for the local parser.
  */
-export async function extractOutfitPieces(uri:string,userId:number,kind:OutfitPhotoKind):Promise<OutfitExtraction[]>{
- if(kind==='worn')return extractWornPieces(uri,userId);
+export async function extractOutfitPieces(uris:string[],userId:number,kind:OutfitPhotoKind):Promise<OutfitExtraction[]>{
+ if(!uris.length)throw new Error('Selecciona al menos una foto.');
+ if(kind==='worn')return extractWornPieces(uris,userId);
  if(!NativeAI?.extractForegroundInstances)throw new Error('Actualiza a la versión con detector local de prendas separadas.');
- const prefix=await processedPath(userId);
- const instanceUris=await NativeAI.extractForegroundInstances(uri,prefix);
- if(!instanceUris.length)throw new Error('No se han encontrado prendas separadas. Deja espacio entre ellas y prueba con un fondo liso.');
+ const allInstances:OutfitImage[]=[];
+ for(const uri of uris){
+  const prefix=await processedPath(userId);
+  const instanceUris=await NativeAI.extractForegroundInstances(uri,prefix);
+  for(const instanceUri of instanceUris)allInstances.push({original_uri:await persistOriginal(instanceUri,userId),processed_uri:instanceUri});
+ }
+ if(!allInstances.length)throw new Error('No se han encontrado prendas separadas. Deja espacio entre ellas y prueba con un fondo liso.');
  const pieces:OutfitExtraction[]=[];
- for(const [index,instanceUri] of instanceUris.entries()){
-  const original=await persistOriginal(instanceUri,userId);
-  const suggested=await analyzeGarment(original);
-  pieces.push({id:`flat-${index}`,original_uri:original,processed_uri:instanceUri,draft:suggested});
+ for(const [index,instance] of allInstances.entries()){
+  const suggested=await analyzeGarment(instance.original_uri);
+  pieces.push({id:`flat-${index}`,original_uri:instance.original_uri,processed_uri:instance.processed_uri,images:[instance],draft:suggested});
  }
  return pieces;
 }
