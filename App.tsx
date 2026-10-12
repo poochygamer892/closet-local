@@ -43,7 +43,7 @@ export default function App(){
 
  return <SafeAreaProvider><StatusBar style="dark"/><View style={s.app}>
   {tab==='closet'?<ClosetScreen userId={userId} refresh={refresh}/>:tab==='looks'?<LooksScreen userId={userId} refresh={refresh}/>:<DeviceScreen userId={userId} restored={()=>setRefresh(x=>x+1)}/>} 
-  <View style={s.nav}>{([['closet','Armario','▢'],['looks','Stylist','✦'],['device','Local','●']]as const).map(([id,label,icon])=><Pressable key={id} onPress={()=>setTab(id)} style={[s.navItem,tab===id&&s.navActive]}><Text style={[s.icon,tab===id&&s.active]}>{icon}</Text><Text style={[s.navText,tab===id&&s.active]}>{label}</Text></Pressable>)}<Pressable style={s.add} onPress={()=>setAdding(true)}><Text style={s.addText}>＋</Text></Pressable></View>
+  <View style={s.nav}>{([['closet','Armario','▢'],['looks','Stylist','✦'],['device','Local','●']]as const).map(([id,label,icon])=><Pressable key={id} onPress={()=>setTab(id)} style={[s.navItem,tab===id&&s.navActive]}><Text style={[s.icon,tab===id&&s.active]}>{icon}</Text><Text style={[s.navText,tab===id&&s.active]}>{label}</Text></Pressable>)}<Pressable style={s.add} onPress={()=>setOutfitImport(true)}><Text style={s.addText}>＋</Text></Pressable></View>
   <Modal visible={adding} animationType="slide"><AddGarmentScreen userId={userId} close={()=>setAdding(false)} saved={()=>setRefresh(x=>x+1)} importOutfit={()=>{setAdding(false);setOutfitImport(true)}}/></Modal>
   <Modal visible={outfitImport} animationType="slide"><OutfitImportScreen userId={userId} close={()=>setOutfitImport(false)} saved={()=>setRefresh(x=>x+1)}/></Modal>
  </View></SafeAreaProvider>;
