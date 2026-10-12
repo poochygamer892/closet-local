@@ -101,10 +101,10 @@ public final class ClosetLocalAIModule: Module {
       }
     }
 
-    AsyncFunction("generateFlatLay") { (source: String, destination: String, prompt: String, promise: Promise) in
+    AsyncFunction("generateFlatLay") { (sources: [String], destination: String, prompt: String, promise: Promise) in
       DispatchQueue.global(qos: .userInitiated).async {
         do {
-          let payload: NSDictionary = ["source": source, "destination": destination, "prompt": prompt]
+          let payload: NSDictionary = ["sources": sources, "destination": destination, "prompt": prompt]
           let selector = NSSelectorFromString("generate:")
           guard let bridge = NSClassFromString("LocalDiffusionBridge") as? NSObject.Type, bridge.responds(to: selector), let result = bridge.perform(selector, with: payload)?.takeUnretainedValue() as? String else {
             throw ClosetLocalAIError.processing("El generador local no se ha podido cargar.")
