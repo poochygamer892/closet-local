@@ -76,6 +76,31 @@ export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
  }catch(error){console.info('Local Vision labels unavailable.',error);return fallback}
 }
 
+function looksLikeHuman(response:VisionAnalysis){
+ const text=normalized(response.labels||[]);
+ return includes(text,'person','human','man','woman','face','portrait','model','body');
+}
+
+async function generateIsolatedGarment(source:string,destination:string,prompt:string){
+ if(!NativeAI?.generateFlatLay)throw new Error('El generador local de prendas no está incluido en esta compilación.');
+ let output=await NativeAI.generateFlatLay(source,destination,prompt);
+ // A worn outfit can still win the first diffusion pass. Check the result
+ // locally and spend one extra pass only when Vision sees a person in it.
+ for(let attempt=0;attempt<2;attempt++){
+  let human=false;
+  try{human=looksLikeHuman(await NativeAI.analyze(output));}catch{return output}
+  if(!human)return output;
+  if(attempt===0){
+   output=await NativeAI.generateFlatLay(source,destination,`${prompt}, flat-lay garment catalog cutout, absolutely no human figure`);
+  }
+ }
+ throw new Error('El generador local todavía ve una persona; no se guardó un recorte humano.');
+}
+
+function reconstructionPrompt(description:string){
+ return `single clothing product, ${description || 'garment'}, reconstructed from the reference photo, one complete item laid perfectly flat and fully visible on a clean warm-white studio background, front-facing ecommerce catalog photograph, centered with generous margins, preserve the exact garment color, silhouette, seams, pockets, hardware, logos and visible pattern from the reference, remove the person and reconstruct any hidden parts naturally, no collage, no multiple views, no person, no human, no body, no torso, no legs, no face, no head, no hands, no arms, no feet, no skin, no mannequin, no hanger, no room, no mirror, no background clutter, no text, no watermark`;
+}
+
 export type OutfitImage={original_uri:string;processed_uri:string};
 export type OutfitExtraction={id:string;original_uri:string;processed_uri:string;images?:OutfitImage[];draft:DraftAnalysis};
 export type OutfitPhotoKind='flat'|'worn';
@@ -86,18 +111,20 @@ async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtr
  const uri=uris[0];
  if(!uri)throw new Error('Selecciona al menos una vista del outfit.');
  const {width,height}=await imageSize(uri);
- // These are conservative body bands. They are never used to invent a whole
- // garment: each saved picture is a transparent extraction of its visible area.
+ // These are reference bands only. The saved image is always produced by the
+ // local diffusion pass; the crop must never be presented as the final garment.
  const bands:{id:string;category:Slot;name:string;crop:ImageManipulator.ActionCrop}[]=[
-  {id:'worn-top',category:'top',name:'Parte de arriba visible',crop:{crop:{originX:Math.round(width*.08),originY:Math.round(height*.14),width:Math.round(width*.84),height:Math.max(1,Math.round(height*.39))}}},
-  {id:'worn-bottom',category:'bottom',name:'Parte de abajo visible',crop:{crop:{originX:Math.round(width*.12),originY:Math.round(height*.49),width:Math.round(width*.76),height:Math.max(1,Math.round(height*.31))}}},
-  {id:'worn-shoes',category:'shoes',name:'Calzado visible',crop:{crop:{originX:Math.round(width*.1),originY:Math.round(height*.77),width:Math.round(width*.8),height:Math.max(1,Math.round(height*.22))}}}
+  {id:'worn-top',category:'top',name:'Parte de arriba visible',crop:{crop:{originX:Math.round(width*.08),originY:Math.round(height*.18),width:Math.round(width*.84),height:Math.max(1,Math.round(height*.36))}}},
+  {id:'worn-bottom',category:'bottom',name:'Parte de abajo visible',crop:{crop:{originX:Math.round(width*.12),originY:Math.round(height*.49),width:Math.round(width*.76),height:Math.max(1,Math.round(height*.34))}}},
+  {id:'worn-shoes',category:'shoes',name:'Calzado visible',crop:{crop:{originX:Math.round(width*.1),originY:Math.round(height*.77),width:Math.round(width*.8),height:Math.max(1,Math.round(height*.23))}}}
  ];
  const pieces:OutfitExtraction[]=[];
  for(const band of bands){
-  const images:OutfitImage[]=[];
-  let firstDraft:DraftAnalysis|undefined;
+  let selected:OutfitImage|undefined;
+  let selectedDraft:DraftAnalysis|undefined;
+  let lastError:unknown;
   for(const viewUri of uris){
+   if(selected)break;
    const viewSize=await imageSize(viewUri);
    const scaleX=viewSize.width/width;
    const scaleY=viewSize.height/height;
@@ -105,20 +132,26 @@ async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtr
    const crop=await ImageManipulator.manipulateAsync(viewUri,[{crop:{originX:Math.max(0,Math.round(cropAction.originX*scaleX)),originY:Math.max(0,Math.round(cropAction.originY*scaleY)),width:Math.max(1,Math.min(viewSize.width-Math.round(cropAction.originX*scaleX),Math.round(cropAction.width*scaleX))),height:Math.max(1,Math.min(viewSize.height-Math.round(cropAction.originY*scaleY),Math.round(cropAction.height*scaleY)))}}],{format:ImageManipulator.SaveFormat.PNG,compress:1});
    const original=await persistOriginal(crop.uri,userId);
    const suggested=await analyzeGarment(original);
-   if(!firstDraft)firstDraft=suggested;
    const destination=await processedPath(userId);
-   const description=[suggested.color,suggested.subcategory,band.name].filter(Boolean).join(', ').toLowerCase();
-   const prompt=`one isolated ${description || 'garment'} only, reconstruct the clothing item from the reference crop, laid completely flat on a clean white studio background, centered ecommerce product photograph, preserve the exact colors, silhouette, material, logos and visible pattern, no person, no body, no head, no hands, no mannequin, no hanger, no room`;
-   // iPhone uses the embedded diffusion generator. Android keeps the same
-   // multi-piece workflow and falls back to its dependency-free local cutout
-   // until an on-device diffusion runtime is bundled there as well.
-   const processed=NativeAI?.generateFlatLay
-    ? await NativeAI.generateFlatLay(original,destination,prompt)
-    : await removeBackground(original,userId);
-   images.push({original_uri:original,processed_uri:processed});
+   const description=[band.name,suggested.subcategory,suggested.color,suggested.material].filter(Boolean).join(', ').toLowerCase();
+   try{
+    // iPhone uses the embedded diffusion generator. Android keeps the same
+    // multi-piece workflow and falls back to its dependency-free local cutout
+    // until an on-device diffusion runtime is bundled there as well.
+    const processed=NativeAI?.generateFlatLay
+     ? await generateIsolatedGarment(original,destination,reconstructionPrompt(description))
+     : await removeBackground(original,userId);
+    selected={original_uri:original,processed_uri:processed};
+    selectedDraft=suggested;
+   }catch(error){
+    lastError=error;
+   }
   }
-  const draft=firstDraft||emptyDraft();
-  pieces.push({id:band.id,original_uri:images[0].original_uri,processed_uri:images[0].processed_uri,images,draft:{...draft,category:band.category,name:draft.name==='Nueva prenda'?band.name:draft.name,subcategory:draft.subcategory||band.name}});
+  if(!selected){
+   throw lastError instanceof Error ? lastError : new Error(`No se pudo reconstruir ${band.name.toLowerCase()} como prenda plana.`);
+  }
+  const draft=selectedDraft||emptyDraft();
+  pieces.push({id:band.id,original_uri:selected.original_uri,processed_uri:selected.processed_uri,images:[selected],draft:{...draft,category:band.category,name:draft.name==='Nueva prenda'?band.name:draft.name,subcategory:draft.subcategory||band.name}});
  }
  return pieces;
 }

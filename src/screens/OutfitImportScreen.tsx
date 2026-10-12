@@ -66,10 +66,10 @@ export function OutfitImportScreen({ userId, close, saved }: { userId: number; c
       <Text style={s.modeLabel}>TIPO DE FOTO</Text>
       <View style={s.modes}>{(['worn', 'flat'] as OutfitPhotoKind[]).map(value => <Pressable key={value} onPress={() => setKind(value)} style={[s.mode, kind === value && s.modeOn]}><Text style={[s.modeTitle, kind === value && s.modeTextOn]}>{value === 'worn' ? 'Outfit puesto' : 'Prendas extendidas'}</Text><Text style={[s.modeCopy, kind === value && s.modeTextOn]}>{value === 'worn' ? 'Frente, espalda y laterales' : 'Cama o suelo'}</Text></Pressable>)}</View>
       <Pressable onPress={choose} style={s.photo}>{photos.length ? <><Image source={{ uri: photos[0] }} style={s.source} /><View style={s.badge}><Text style={s.badgeText}>{photos.length} fotos seleccionadas</Text></View></> : <><Text style={s.plus}>＋</Text><Text style={s.photoText}>Elegir varias fotos</Text></>}</Pressable>
-      <Text style={s.tip}>Añade hasta 8 vistas del mismo outfit. Se procesan todas las vistas; en un outfit puesto se crea una pieza para arriba, otra para abajo y otra para calzado.</Text>
+      <Text style={s.tip}>Añade hasta 8 vistas del mismo outfit. Se usan como referencias y se genera una sola foto plana por prenda; no se guarda el recorte de la persona. En un outfit puesto se crea una pieza para arriba, otra para abajo y otra para calzado.</Text>
       <Pressable disabled={!photos.length || busy} onPress={extract} style={[s.primary, (!photos.length || busy) && s.disabled]}><Text style={s.primaryText}>{busy ? 'Generando prendas en este iPhone…' : 'Detectar y preparar prendas'}</Text></Pressable>
     </> : <>
-      <Text style={s.resultTitle}>Prendas detectadas</Text><Text style={s.resultCopy}>Cada tarjeta corresponde a una pieza. Revisa las imágenes y los campos antes de guardarla.</Text>
+      <Text style={s.resultTitle}>Prendas reconstruidas</Text><Text style={s.resultCopy}>Cada tarjeta es una prenda generada en formato plano a partir de las vistas seleccionadas. Revisa las imágenes y los campos antes de guardarla.</Text>
       {pieces.map((piece, index) => <View key={piece.id} style={[s.card, !piece.selected && s.cardOff]}>
         <Pressable onPress={() => setPieces(all => all.map((item, i) => i === index ? { ...item, selected: !item.selected } : item))} style={[s.tick, piece.selected && s.tickOn]}><Text style={s.tickText}>{piece.selected ? '✓' : ''}</Text></Pressable>
         <Image source={{ uri: piece.processed_uri }} style={s.image} />

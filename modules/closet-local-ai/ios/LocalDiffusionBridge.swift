@@ -11,10 +11,10 @@ public final class LocalDiffusionBridge: NSObject {
       let configuration = MLModelConfiguration(); configuration.computeUnits = .cpuAndNeuralEngine
       var request = PipelineConfiguration(prompt: prompt)
       request.startingImage = input
-      // Keep the reference crop as a visual guide, but let the local model
-      // redraw it as a flat product photograph instead of copying the wearer.
-      request.strength = 0.78; request.stepCount = 32; request.guidanceScale = 7.5
-      request.negativePrompt = "person, human, body, torso, legs, face, head, hands, arms, feet, skin, mannequin, hanger, model, room, mirror, background clutter, text, watermark"
+      // The reference is only a visual guide. A high img2img strength is
+      // intentional here: lower values copy the person wearing the item.
+      request.strength = 0.92; request.stepCount = 40; request.guidanceScale = 8.0
+      request.negativePrompt = "person, human, body, torso, legs, face, head, hands, arms, feet, skin, mannequin, hanger, model, wearer, room, mirror, background clutter, text, watermark"
       let pipeline = try StableDiffusionPipeline(resourcesAt: resources, controlNet: [], configuration: configuration, disableSafety: true, reduceMemory: true)
       try pipeline.loadResources()
       guard let image = try pipeline.generateImages(configuration: request, progressHandler: { _ in true }).first ?? nil, let data = UIImage(cgImage: image).pngData() else { return nil }
