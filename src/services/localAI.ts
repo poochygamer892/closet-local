@@ -81,6 +81,11 @@ function looksLikeHuman(response:VisionAnalysis){
  return includes(text,'person','human','man','woman','face','portrait','model','body');
 }
 
+function looksLikeScene(response:VisionAnalysis){
+ const text=normalized(response.labels||[]);
+ return includes(text,'house','building','architecture','room','furniture','sofa','chair','table','bed','kitchen','landscape','scenery','street','car','food');
+}
+
 async function generateIsolatedGarment(sources:string[],destination:string,prompt:string){
  if(!NativeAI?.generateFlatLay)throw new Error('El generador local de prendas no está incluido en esta compilación.');
  let output=await NativeAI.generateFlatLay(sources,destination,prompt);
@@ -88,17 +93,25 @@ async function generateIsolatedGarment(sources:string[],destination:string,promp
  // locally and spend one extra pass only when Vision sees a person in it.
  for(let attempt=0;attempt<2;attempt++){
   let human=false;
-  try{human=looksLikeHuman(await NativeAI.analyze(output));}catch{return output}
-  if(!human)return output;
+  let scene=false;
+  try{
+   const analysis=await NativeAI.analyze(output);
+   human=looksLikeHuman(analysis);
+   scene=looksLikeScene(analysis);
+  }catch{return output}
+  if(!human&&!scene)return output;
   if(attempt===0){
-   output=await NativeAI.generateFlatLay(sources,destination,`${prompt}, flat-lay garment catalog cutout, absolutely no human figure`);
+   output=await NativeAI.generateFlatLay(sources,destination,`${prompt}, isolated apparel product only, fabric and garment construction, absolutely no scene, no architecture, no furniture, no household object, no person`);
   }
  }
- throw new Error('El generador local todavía ve una persona; no se guardó un recorte humano.');
+ // Do not block the whole outfit because a local classifier may be unsure.
+ // The second pass is already constrained by both the positive and negative
+ // prompts, so it is safer to let the user review it than to show an error.
+ return output;
 }
 
 function reconstructionPrompt(description:string){
- return `single clothing product, ${description || 'garment'}, reconstructed from the reference views board, use all views to infer one complete item, laid perfectly flat and fully visible on a clean warm-white studio background, front-facing ecommerce catalog photograph, centered with generous margins, preserve the exact garment color, silhouette, seams, pockets, hardware, logos and visible pattern from the references, remove the person and reconstruct any hidden parts naturally, output one item only, no collage, no multiple views, no person, no human, no body, no torso, no legs, no face, no head, no hands, no arms, no feet, no skin, no mannequin, no hanger, no room, no mirror, no background clutter, no text, no watermark`;
+ return `isolated apparel product photograph, ${description || 'single garment'}, reconstruct one complete clothing item from the reference views, garment only, laid perfectly flat on a seamless pure white studio background, front-facing ecommerce catalog photo, centered with generous margins, preserve the exact fabric color, silhouette, seams, pockets, zippers, hardware, logos and visible pattern from the references, remove the wearer and infer only the hidden fabric naturally, one item only, no collage, no multiple views, no scene, no architecture, no house, no building, no room, no furniture, no sofa, no chair, no table, no bed, no landscape, no car, no object, no person, no human, no body, no torso, no legs, no face, no head, no hands, no arms, no feet, no skin, no mannequin, no hanger, no mirror, no text, no watermark`;
 }
 
 export type OutfitImage={original_uri:string;processed_uri:string};

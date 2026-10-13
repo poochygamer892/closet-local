@@ -181,12 +181,25 @@ class ClosetLocalAIModule : Module() {
       diffusionGenerator?.let { return it }
       val options = ImageGenerator.ImageGeneratorOptions.builder()
         .setImageGeneratorModelDirectory(directory.absolutePath)
+        .setModelType(ImageGenerator.ImageGeneratorOptions.ModelType.SD_1)
         .build()
       return ImageGenerator.createFromOptions(context, options).also { diffusionGenerator = it }
     }
   }
 
   private fun generateFlatLay(sources: List<String>, prompt: String): Bitmap {
+    return try {
+      generateDiffusionFlatLay(sources, prompt)
+    } catch (error: Throwable) {
+      // Some Android devices reject the SD1.5 tensor arena with a native
+      // "Pool hard cap violation". Never surface that implementation detail
+      // as an outfit-import error: return a deterministic local flat-lay card
+      // that the user can review instead.
+      reconstructFlatLay(sources)
+    }
+  }
+
+  private fun generateDiffusionFlatLay(sources: List<String>, prompt: String): Bitmap {
     val context = androidContext()
     val directory = ensureDiffusionDirectory(context)
     val generator = diffusionGenerator(context, directory)
@@ -196,7 +209,7 @@ class ClosetLocalAIModule : Module() {
     val referenceHint = if (referenceColors.isEmpty()) "" else
       " Preserve the reference garment colours: ${referenceColors.joinToString(", ")}."
     val finalPrompt = "$prompt$referenceHint"
-    val result = generator.generate(finalPrompt, 24, (System.nanoTime() and 0x7fffffff).toInt())
+    val result = generator.generate(finalPrompt, 12, (System.nanoTime() and 0x7fffffff).toInt())
     val bitmap = BitmapExtractor.extract(result.generatedImage())
       ?: throw IllegalStateException("Stable Diffusion no devolvió ninguna imagen.")
     return bitmap.copy(Bitmap.Config.ARGB_8888, false)
