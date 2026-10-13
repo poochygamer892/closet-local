@@ -14,4 +14,10 @@ android {
 
 dependencies {
   implementation project(':expo-modules-core')
+  // Google’s on-device Stable Diffusion runtime. These AARs are checked into
+  // the module's local dependency folder because the Android build is
+  // intentionally offline/local (GitHub Actions is reserved for iOS).
+  // Compile against the local runtime; the application module packages these
+  // AAR/JAR files so this library AAR remains valid on its own.
+  compileOnly fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
 }

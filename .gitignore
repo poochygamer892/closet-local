@@ -11,3 +11,4 @@ ios/build/
 .DS_Store
 .env
 assets/models/stable-diffusion-2-1-base/
+modules/closet-local-ai/android/src/main/assets/models/sd15.zip

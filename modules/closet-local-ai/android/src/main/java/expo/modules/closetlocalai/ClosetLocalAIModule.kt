@@ -7,11 +7,16 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.content.Context
+import com.google.mediapipe.framework.image.BitmapExtractor
+import com.google.mediapipe.tasks.vision.imagegenerator.ImageGenerator
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
 import java.io.FileOutputStream
+import java.io.BufferedInputStream
+import java.util.zip.ZipInputStream
 import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -19,21 +24,30 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Dependency-free Android companion for the local AI module.
+ * Android implementation of the local AI module.
  *
- * iOS ships the heavier Apple Vision + Stable Diffusion runtime. Android keeps
- * this path completely offline and small: it performs foreground extraction,
- * classification and a catalog-style flat-lay reconstruction with Bitmap and
- * Canvas. No network model or Play service is required to open the app.
+ * Foreground extraction and lightweight classification stay dependency-free,
+ * while flat-lay generation uses MediaPipe's on-device Stable Diffusion
+ * runtime. The local build bundles `sd15.zip` in the APK and expands it once
+ * into the app's private files directory; no account or network request is
+ * needed at runtime.
  */
 class ClosetLocalAIModule : Module() {
   private val executor = Executors.newSingleThreadExecutor()
+  private val generatorLock = Any()
+  @Volatile private var diffusionGenerator: ImageGenerator? = null
+  @Volatile private var diffusionDirectory: File? = null
 
   override fun definition() = ModuleDefinition {
     Name("ClosetLocalAI")
 
     AsyncFunction("status") {
-      mapOf("foreground" to true, "classification" to true, "platform" to "android-bitmap-local")
+      mapOf(
+        "foreground" to true,
+        "classification" to true,
+        "generation" to true,
+        "platform" to "android-mediapipe-stable-diffusion",
+      )
     }
 
     AsyncFunction("removeBackground") { source: String, destination: String, promise: Promise ->
@@ -59,15 +73,11 @@ class ClosetLocalAIModule : Module() {
       }
     }
 
-    // Android deliberately uses a lightweight local reconstruction here. It
-    // keeps the APK at the same size instead of bundling a multi-gigabyte
-    // diffusion checkpoint, while still returning a centered catalog image to
-    // the shared JS outfit flow (rather than silently falling back to the raw
-    // crop). The iPhone build uses true local Stable Diffusion for this call.
-    AsyncFunction("generateFlatLay") { sources: List<String>, destination: String, _prompt: String, promise: Promise ->
+    AsyncFunction("generateFlatLay") { sources: List<String>, destination: String, prompt: String, promise: Promise ->
       executor.execute {
         try {
-          save(reconstructFlatLay(sources), destination)
+          val generated = generateFlatLay(sources, prompt)
+          save(generated, destination)
           promise.resolve(file(destination))
         } catch (error: Exception) {
           promise.reject("E_FLAT_LAY", error.message, error)
@@ -111,6 +121,85 @@ class ClosetLocalAIModule : Module() {
     val target = File(destination.removePrefix("file://"))
     target.parentFile?.mkdirs()
     FileOutputStream(target).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+  }
+
+  private fun androidContext(): Context =
+    appContext.reactContext ?: throw IllegalStateException("No se pudo acceder al contexto Android.")
+
+  /**
+   * Expands the bundled model lazily. Keeping this out of application startup
+   * avoids the black-screen/crash behaviour when the user only opens the
+   * wardrobe; the first generation can take a few minutes on a phone.
+   */
+  private fun ensureDiffusionDirectory(context: Context): File {
+    diffusionDirectory?.let { if (File(it, ".complete").exists()) return it }
+    synchronized(generatorLock) {
+      diffusionDirectory?.let { if (File(it, ".complete").exists()) return it }
+      val directory = File(context.filesDir, "closet-local-ai/sd15")
+      val marker = File(directory, ".complete")
+      if (!marker.exists()) {
+        val asset = runCatching { context.assets.open("models/sd15.zip") }.getOrNull()
+          ?: throw IllegalStateException(
+            "Falta el modelo Stable Diffusion de Android (models/sd15.zip). " +
+              "Genera el APK con scripts/build-android-local.sh."
+          )
+        directory.mkdirs()
+        ZipInputStream(BufferedInputStream(asset)).use { zip ->
+          val buffer = ByteArray(1024 * 1024)
+          while (true) {
+            val entry = zip.nextEntry ?: break
+            val target = File(directory, entry.name)
+            val root = directory.canonicalFile
+            if (!target.canonicalFile.path.startsWith(root.path + File.separator)) {
+              throw IllegalStateException("Entrada de modelo inválida.")
+            }
+            if (entry.isDirectory) {
+              target.mkdirs()
+            } else {
+              target.parentFile?.mkdirs()
+              FileOutputStream(target).use { output ->
+                while (true) {
+                  val read = zip.read(buffer)
+                  if (read <= 0) break
+                  output.write(buffer, 0, read)
+                }
+              }
+            }
+            zip.closeEntry()
+          }
+        }
+        marker.writeText("stable-diffusion-v1-5-mediapipe")
+      }
+      diffusionDirectory = directory
+      return directory
+    }
+  }
+
+  private fun diffusionGenerator(context: Context, directory: File): ImageGenerator {
+    diffusionGenerator?.let { return it }
+    synchronized(generatorLock) {
+      diffusionGenerator?.let { return it }
+      val options = ImageGenerator.ImageGeneratorOptions.builder()
+        .setImageGeneratorModelDirectory(directory.absolutePath)
+        .build()
+      return ImageGenerator.createFromOptions(context, options).also { diffusionGenerator = it }
+    }
+  }
+
+  private fun generateFlatLay(sources: List<String>, prompt: String): Bitmap {
+    val context = androidContext()
+    val directory = ensureDiffusionDirectory(context)
+    val generator = diffusionGenerator(context, directory)
+    val referenceColors = sources.take(8).mapNotNull { source ->
+      runCatching { dominantColor(loadBitmap(source)) }.getOrNull()
+    }.distinct()
+    val referenceHint = if (referenceColors.isEmpty()) "" else
+      " Preserve the reference garment colours: ${referenceColors.joinToString(", ")}."
+    val finalPrompt = "$prompt$referenceHint"
+    val result = generator.generate(finalPrompt, 24, (System.nanoTime() and 0x7fffffff).toInt())
+    val bitmap = BitmapExtractor.extract(result.generatedImage())
+      ?: throw IllegalStateException("Stable Diffusion no devolvió ninguna imagen.")
+    return bitmap.copy(Bitmap.Config.ARGB_8888, false)
   }
 
   private fun reconstructFlatLay(values: List<String>): Bitmap {
