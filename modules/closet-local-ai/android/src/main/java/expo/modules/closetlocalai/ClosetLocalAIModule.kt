@@ -65,9 +65,15 @@ class ClosetLocalAIModule : Module() {
     AsyncFunction("extractForegroundInstances") { source: String, destinationPrefix: String, promise: Promise ->
       executor.execute {
         try {
-          val target = destinationPrefix.removePrefix("file:").removeSuffix(".png") + "-piece-0.png"
-          save(removeNearBackground(loadBitmap(source)), target)
-          promise.resolve(listOf(file(target)))
+          val base = destinationPrefix.removePrefix("file:").removeSuffix(".png")
+          val pieces = splitForegroundInstances(loadBitmap(source))
+          if (pieces.isEmpty()) throw IllegalArgumentException("No se detectaron prendas separadas.")
+          val outputs = pieces.mapIndexed { index, bitmap ->
+            val target = "$base-piece-$index.png"
+            save(bitmap, target)
+            file(target)
+          }
+          promise.resolve(outputs)
         } catch (error: Exception) {
           promise.reject("E_INSTANCES", error.message, error)
         }
@@ -91,7 +97,7 @@ class ClosetLocalAIModule : Module() {
         try {
           val bitmap = loadBitmap(source)
           promise.resolve(mapOf(
-            "labels" to listOf(mapOf("identifier" to "clothing", "confidence" to 0.35)),
+            "labels" to basicLabels(bitmap),
             "dominantColor" to dominantColor(bitmap),
             "available" to true,
           ))
@@ -99,6 +105,37 @@ class ClosetLocalAIModule : Module() {
           promise.reject("E_ANALYZE", error.message, error)
         }
       }
+    }
+  }
+
+  /**
+   * A deterministic Android fallback for category hints. It is deliberately
+   * conservative and low-confidence: users can always correct the category,
+   * but a flat-lay shoe or trouser should not arrive as a generic top just
+   * because Android has no bundled image-classification model.
+   */
+  private fun basicLabels(source: Bitmap): List<Map<String, Any>> {
+    val cutout = removeNearBackground(source)
+    val bounds = opaqueBounds(cutout)
+    if (bounds.isEmpty) return listOf(mapOf("identifier" to "clothing", "confidence" to 0.2))
+    val foreground = foregroundScore(source).toFloat() / (source.width * source.height).toFloat()
+    val ratio = bounds.width().toFloat() / bounds.height().toFloat()
+    val maxDimension = max(source.width, source.height).toFloat()
+    val small = max(bounds.width(), bounds.height()) < maxDimension * .45f
+    return when {
+      ratio > 2.0f && bounds.height() < source.height * .45f -> listOf(
+        mapOf("identifier" to "footwear", "confidence" to 0.58),
+        mapOf("identifier" to "clothing", "confidence" to 0.25),
+      )
+      ratio < .58f && bounds.height() > bounds.width() * 1.6f -> listOf(
+        mapOf("identifier" to "trouser", "confidence" to 0.48),
+        mapOf("identifier" to "clothing", "confidence" to 0.3),
+      )
+      small && foreground < .14f -> listOf(
+        mapOf("identifier" to "accessory", "confidence" to 0.42),
+        mapOf("identifier" to "clothing", "confidence" to 0.25),
+      )
+      else -> listOf(mapOf("identifier" to "clothing", "confidence" to 0.35))
     }
   }
 
@@ -122,6 +159,67 @@ class ClosetLocalAIModule : Module() {
     val target = File(destination.removePrefix("file://"))
     target.parentFile?.mkdirs()
     FileOutputStream(target).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+  }
+
+  /**
+   * Splits disconnected foreground islands after the inexpensive edge flood
+   * fill. This is intentionally conservative: it is much safer to return two
+   * clean pieces than to manufacture dozens of tiny fragments from texture.
+   */
+  private fun splitForegroundInstances(source: Bitmap): List<Bitmap> {
+    val cutout = removeNearBackground(source)
+    val width = cutout.width
+    val height = cutout.height
+    val pixels = IntArray(width * height)
+    cutout.getPixels(pixels, 0, width, 0, 0, width, height)
+    val visited = BooleanArray(pixels.size)
+    val minimumArea = max(120, pixels.size / 200)
+    val bounds = mutableListOf<Pair<Rect, Int>>()
+
+    for (index in pixels.indices) {
+      if (visited[index] || Color.alpha(pixels[index]) <= 16) continue
+      val queue = ArrayDeque<Int>()
+      queue.add(index)
+      visited[index] = true
+      var area = 0
+      var left = width
+      var top = height
+      var right = 0
+      var bottom = 0
+      while (queue.isNotEmpty()) {
+        val current = queue.removeFirst()
+        val x = current % width
+        val y = current / width
+        area++
+        left = min(left, x)
+        top = min(top, y)
+        right = max(right, x + 1)
+        bottom = max(bottom, y + 1)
+        val neighbours = intArrayOf(
+          if (x > 0) current - 1 else -1,
+          if (x + 1 < width) current + 1 else -1,
+          if (y > 0) current - width else -1,
+          if (y + 1 < height) current + width else -1,
+        )
+        for (neighbour in neighbours) {
+          if (neighbour >= 0 && !visited[neighbour] && Color.alpha(pixels[neighbour]) > 16) {
+            visited[neighbour] = true
+            queue.add(neighbour)
+          }
+        }
+      }
+      if (area >= minimumArea) bounds.add(Rect(left, top, right, bottom) to area)
+    }
+
+    if (bounds.isEmpty()) return emptyList()
+    return bounds.sortedByDescending { it.second }.take(8).map { (box, _) ->
+      val padding = max(8, min(width, height) / 40)
+      val left = max(0, box.left - padding)
+      val top = max(0, box.top - padding)
+      val right = min(width, box.right + padding)
+      val bottom = min(height, box.bottom + padding)
+      Bitmap.createBitmap(cutout, left, top, max(1, right - left), max(1, bottom - top))
+    }
   }
 
   private fun androidContext(): Context =
@@ -189,6 +287,13 @@ class ClosetLocalAIModule : Module() {
   }
 
   private fun generateFlatLay(sources: List<String>, prompt: String): Bitmap {
+    // MediaPipe's ImageGenerator is text-to-image, not image-to-image. Using
+    // it to "reconstruct" a real garment invents logos, seams and silhouettes.
+    // For the outfit-import flow preserve the pixels locally and reserve
+    // diffusion for future explicitly generative prompts.
+    if (sources.isNotEmpty() && prompt.contains("reconstruct one complete clothing item")) {
+      return reconstructFlatLay(sources)
+    }
     return try {
       generateDiffusionFlatLay(sources, prompt)
     } catch (error: Throwable) {

@@ -9,30 +9,31 @@ Aplicación autónoma React Native. No inicia FastAPI, no necesita Ollama y no r
 - macOS + Xcode 16 para IPA
 - CocoaPods para iOS
 
-## Modelos locales
+## IA local
 
-Consulta `assets/models/README.md`. Antes de una distribución final, incluye modelos ONNX cuantizados compatibles con los contratos descritos allí. Sin pesos, la app sigue siendo utilizable y muestra el formulario de etiquetado manual.
+La app no usa servidor ni cuenta. En iOS 17 o posterior emplea Vision para recorte, instancias y clasificación. En Android el módulo incluye un recorte local por componentes conectados y, en las compilaciones preparadas para ello, MediaPipe Stable Diffusion 1.5.
+
+El importador de un outfit puesto no trata Stable Diffusion como si fuera imagen-a-imagen: ese runtime es texto-a-imagen y puede inventar detalles. Para reconstruir una prenda se conserva la mejor vista localmente; la difusión queda reservada para prompts generativos explícitos y tiene un fallback determinista si el dispositivo no puede reservar memoria.
+
+El Stylist de la pestaña Looks funciona sin modelo: combina intención, colores, favoritos y rotación de uso. Esto mantiene la función disponible en ambos sistemas y hace que cada recomendación sea explicable.
 
 ## Instalar y generar proyectos nativos
 
 ```bash
-cd mobile
+cd closet-local
 npm install
 npx expo prebuild
 ```
 
 Esto crea `android/` e `ios/`. `onnxruntime-react-native` requiere una compilación nativa; Expo Go no sirve para probar la IA.
 
-## APK Android local
+## APK Android local con Stable Diffusion
 
 ```bash
-npm run android                 # prueba en dispositivo/emulador
-cd android
-./gradlew assembleRelease       # APK
-./gradlew bundleRelease         # AAB para Play Store
+./scripts/build-android-local.sh
 ```
 
-El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Para distribuirlo debes configurar una clave de firma en `android/gradle.properties` y `android/app/build.gradle`.
+El script descarga `sd15.zip` (aprox. 1,9 GB), lo incorpora sin comprimir al APK y verifica que el modelo esté presente. Para una compilación normal también puedes usar `npm run android`, `cd android && ./gradlew assembleRelease` o `./gradlew bundleRelease`. Para distribuirlo debes configurar una clave de firma en `android/gradle.properties` y `android/app/build.gradle`.
 
 ## IPA iPhone local
 

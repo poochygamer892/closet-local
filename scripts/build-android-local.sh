@@ -65,7 +65,18 @@ fi
 if unzip -l "$SOURCE_APK" | grep -q 'assets/models/sd15.zip'; then
   echo "El APK ya contiene el checkpoint; no se vuelve a insertar."
 else
-  (cd "$PROJECT_ROOT/modules/closet-local-ai/android/src/main" && zip -0 -q "$SOURCE_APK" assets/models/sd15.zip)
+  MAIN_ASSETS_DIR="$PROJECT_ROOT/modules/closet-local-ai/android/src/main"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$MAIN_ASSETS_DIR" && zip -0 -q "$SOURCE_APK" assets/models/sd15.zip)
+  elif [[ -x "$JAVA_HOME/bin/jar" ]]; then
+    # The managed build image may not ship the `zip` CLI. JDK's jar tool can
+    # update the APK as a ZIP and `-0` keeps the multi-gigabyte checkpoint
+    # uncompressed, which is required by the on-device MediaPipe loader.
+    (cd "$MAIN_ASSETS_DIR" && "$JAVA_HOME/bin/jar" -0 -u -f "$SOURCE_APK" assets/models/sd15.zip)
+  else
+    echo "No se encontró zip ni el jar de Java para insertar el modelo." >&2
+    exit 1
+  fi
 fi
 
 APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
