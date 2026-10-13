@@ -135,9 +135,10 @@ async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtr
   const destination=await processedPath(userId);
   const descriptions=references.flatMap(reference=>[reference.draft.subcategory,reference.draft.color,reference.draft.material]).filter(Boolean);
   const description=[band.name,...Array.from(new Set(descriptions))].join(', ').toLowerCase();
-  // iPhone receives the reference crops together, so front/back/detail views
-  // contribute to one reconstructed garment. Android keeps the deterministic
-  // local cutout fallback until an on-device diffusion runtime is bundled.
+  // iPhone receives the reference crops together and reconstructs them with
+  // Stable Diffusion. Android exposes the same native method through its
+  // lightweight offline catalog renderer, so it no longer falls back to a raw
+  // body crop when the APK is built without a diffusion checkpoint.
   const processed=NativeAI?.generateFlatLay
    ? await generateIsolatedGarment(references.map(reference=>reference.original),destination,reconstructionPrompt(description))
    : await removeBackground(references[0].original,userId);
