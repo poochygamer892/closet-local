@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.content.Context
 import com.google.mediapipe.framework.image.BitmapExtractor
 import com.google.mediapipe.tasks.vision.imagegenerator.ImageGenerator
+import com.google.mediapipe.tasks.vision.imagegenerator.LowMemoryImageGeneratorOptions
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -179,10 +180,10 @@ class ClosetLocalAIModule : Module() {
     diffusionGenerator?.let { return it }
     synchronized(generatorLock) {
       diffusionGenerator?.let { return it }
-      val options = ImageGenerator.ImageGeneratorOptions.builder()
-        .setImageGeneratorModelDirectory(directory.absolutePath)
-        .setModelType(ImageGenerator.ImageGeneratorOptions.ModelType.SD_1)
-        .build()
+      val options = LowMemoryImageGeneratorOptions(
+        directory.absolutePath,
+        ImageGenerator.ImageGeneratorOptions.ModelType.SD_1,
+      )
       return ImageGenerator.createFromOptions(context, options).also { diffusionGenerator = it }
     }
   }
