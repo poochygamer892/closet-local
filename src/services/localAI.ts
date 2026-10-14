@@ -1,4 +1,3 @@
-import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import {Image} from 'react-native';
 import NativeAI,{type VisionAnalysis} from '../../modules/closet-local-ai/src';
@@ -57,11 +56,12 @@ export async function modelStatus(){
 export async function removeBackground(uri:string,userId:number){
  const destination=await processedPath(userId);
  if(NativeAI){
-  try{return await NativeAI.removeBackground(uri,destination)}catch(error){console.info('Local foreground extraction unavailable; keeping local image.',error)}
+  try{return await NativeAI.removeBackground(uri,destination)}catch(error){
+   console.info('Local foreground extraction unavailable.',error);
+   throw new Error('No se pudo eliminar el fondo en este dispositivo.');
+  }
  }
- const rendered=await ImageManipulator.manipulateAsync(uri,[],{format:ImageManipulator.SaveFormat.PNG,compress:1});
- await FileSystem.copyAsync({from:rendered.uri,to:destination});
- return destination;
+ throw new Error('La IA local no está incluida en esta compilación.');
 }
 
 export async function analyzeGarment(uri:string):Promise<DraftAnalysis>{
@@ -88,7 +88,14 @@ function looksLikeScene(response:VisionAnalysis){
 
 async function generateIsolatedGarment(sources:string[],destination:string,prompt:string){
  if(!NativeAI?.generateFlatLay)throw new Error('El generador local de prendas no está incluido en esta compilación.');
- let output=await NativeAI.generateFlatLay(sources,destination,prompt);
+ let output:string;
+ try{
+  output=await NativeAI.generateFlatLay(sources,destination,prompt);
+ }catch(error){
+  console.info('Generación local no disponible; usando reconstrucción segura.',error);
+  if(NativeAI.fallbackFlatLay)return NativeAI.fallbackFlatLay(sources,destination);
+  throw new Error('No se pudo generar una imagen segura de la prenda.');
+ }
  // A worn outfit can still win the first diffusion pass. Check the result
  // locally and spend one extra pass only when Vision sees a person in it.
  for(let attempt=0;attempt<2;attempt++){
@@ -98,15 +105,24 @@ async function generateIsolatedGarment(sources:string[],destination:string,promp
    const analysis=await NativeAI.analyze(output);
    human=looksLikeHuman(analysis);
    scene=looksLikeScene(analysis);
-  }catch{return output}
+  }catch{
+   if(NativeAI.fallbackFlatLay)return NativeAI.fallbackFlatLay(sources,destination);
+   return output;
+  }
   if(!human&&!scene)return output;
   if(attempt===0){
-   output=await NativeAI.generateFlatLay(sources,destination,`${prompt}, isolated apparel product only, fabric and garment construction, absolutely no scene, no architecture, no furniture, no household object, no person`);
+   try{
+    output=await NativeAI.generateFlatLay(sources,destination,`${prompt}, isolated apparel product only, fabric and garment construction, absolutely no scene, no architecture, no furniture, no household object, no person`);
+   }catch{
+    if(NativeAI.fallbackFlatLay)return NativeAI.fallbackFlatLay(sources,destination);
+    return output;
+   }
   }
  }
- // Do not block the whole outfit because a local classifier may be unsure.
- // The second pass is already constrained by both the positive and negative
- // prompts, so it is safer to let the user review it than to show an error.
+ // Never save a generated scene/person as a garment. The fallback is
+ // deterministic and is preferable to silently putting a house or a body in
+ // the wardrobe when the local classifier or diffusion model is uncertain.
+ if(NativeAI.fallbackFlatLay)return NativeAI.fallbackFlatLay(sources,destination);
  return output;
 }
 
@@ -124,8 +140,10 @@ async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtr
  const uri=uris[0];
  if(!uri)throw new Error('Selecciona al menos una vista del outfit.');
  const {width,height}=await imageSize(uri);
- // These are reference bands only. The saved image is always produced by the
- // local diffusion pass; the crop must never be presented as the final garment.
+ // These are reference bands only. The crop must never be presented as the
+ // final garment: iOS reconstructs it with image-to-image diffusion, while
+ // Android uses the same source-aware cutout card until an image-conditioned
+ // MediaPipe checkpoint is bundled.
  const bands:{id:string;category:Slot;name:string;crop:ImageManipulator.ActionCrop}[]=[
   {id:'worn-top',category:'top',name:'Parte de arriba visible',crop:{crop:{originX:Math.round(width*.08),originY:Math.round(height*.18),width:Math.round(width*.84),height:Math.max(1,Math.round(height*.36))}}},
   {id:'worn-bottom',category:'bottom',name:'Parte de abajo visible',crop:{crop:{originX:Math.round(width*.12),originY:Math.round(height*.49),width:Math.round(width*.76),height:Math.max(1,Math.round(height*.34))}}},
@@ -148,9 +166,9 @@ async function extractWornPieces(uris:string[],userId:number):Promise<OutfitExtr
   const destination=await processedPath(userId);
   const descriptions=references.flatMap(reference=>[reference.draft.subcategory,reference.draft.color,reference.draft.material]).filter(Boolean);
   const description=[band.name,...Array.from(new Set(descriptions))].join(', ').toLowerCase();
-  // iPhone and Android receive the reference crops and reconstruct them with
-  // their bundled local diffusion runtime. Android extracts its MediaPipe
-  // checkpoint into app-private storage on first use and never uploads it.
+  // Both platforms receive every reference crop for this garment. iOS uses
+  // image-to-image Stable Diffusion; Android uses a source-aware reconstruction
+  // and never falls back to text-only generation (which ignored the photos).
   const processed=NativeAI?.generateFlatLay
    ? await generateIsolatedGarment(references.map(reference=>reference.original),destination,reconstructionPrompt(description))
    : await removeBackground(references[0].original,userId);

@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.content.Context
-import com.google.mediapipe.framework.image.BitmapExtractor
 import com.google.mediapipe.tasks.vision.imagegenerator.ImageGenerator
 import com.google.mediapipe.tasks.vision.imagegenerator.LowMemoryImageGeneratorOptions
 import expo.modules.kotlin.Promise
@@ -28,10 +27,9 @@ import kotlin.math.min
  * Android implementation of the local AI module.
  *
  * Foreground extraction and lightweight classification stay dependency-free,
- * while flat-lay generation uses MediaPipe's on-device Stable Diffusion
- * runtime. The local build bundles `sd15.zip` in the APK and expands it once
- * into the app's private files directory; no account or network request is
- * needed at runtime.
+ * while flat-lay generation uses the selected source views. The local build
+ * still bundles `sd15.zip` for the future image-conditioned runtime, but this
+ * module never uses text-only generation because it cannot see the photos.
  */
 class ClosetLocalAIModule : Module() {
   private val executor = Executors.newSingleThreadExecutor()
@@ -47,14 +45,15 @@ class ClosetLocalAIModule : Module() {
         "foreground" to true,
         "classification" to true,
         "generation" to true,
-        "platform" to "android-mediapipe-stable-diffusion",
+        "generationMode" to "source-aware-reference-reconstruction",
+        "platform" to "android-local-ai",
       )
     }
 
     AsyncFunction("removeBackground") { source: String, destination: String, promise: Promise ->
       executor.execute {
         try {
-          save(removeNearBackground(loadBitmap(source)), destination)
+          save(cutoutForGarment(loadBitmap(source)), destination)
           promise.resolve(file(destination))
         } catch (error: Exception) {
           promise.reject("E_BACKGROUND", error.message, error)
@@ -80,14 +79,29 @@ class ClosetLocalAIModule : Module() {
       }
     }
 
-    AsyncFunction("generateFlatLay") { sources: List<String>, destination: String, prompt: String, promise: Promise ->
+    AsyncFunction("generateFlatLay") { sources: List<String>, destination: String, _prompt: String, promise: Promise ->
       executor.execute {
         try {
-          val generated = generateFlatLay(sources, prompt)
-          save(generated, destination)
+          // MediaPipe 0.10.20 exposes text-to-image here. Its generate()
+          // overload does not consume the supplied photos, so using it for an
+          // outfit produced unrelated scenes (including houses and furniture)
+          // in the wardrobe. Until an image-conditioned model is bundled,
+          // always use the source-aware reconstruction below.
+          save(reconstructFlatLay(sources), destination)
           promise.resolve(file(destination))
         } catch (error: Exception) {
           promise.reject("E_FLAT_LAY", error.message, error)
+        }
+      }
+    }
+
+    AsyncFunction("fallbackFlatLay") { sources: List<String>, destination: String, promise: Promise ->
+      executor.execute {
+        try {
+          save(reconstructFlatLay(sources), destination)
+          promise.resolve(file(destination))
+        } catch (error: Exception) {
+          promise.reject("E_FALLBACK", error.message, error)
         }
       }
     }
@@ -115,7 +129,7 @@ class ClosetLocalAIModule : Module() {
    * because Android has no bundled image-classification model.
    */
   private fun basicLabels(source: Bitmap): List<Map<String, Any>> {
-    val cutout = removeNearBackground(source)
+    val cutout = cutoutForGarment(source)
     val bounds = opaqueBounds(cutout)
     if (bounds.isEmpty) return listOf(mapOf("identifier" to "clothing", "confidence" to 0.2))
     val foreground = foregroundScore(source).toFloat() / (source.width * source.height).toFloat()
@@ -286,46 +300,11 @@ class ClosetLocalAIModule : Module() {
     }
   }
 
-  private fun generateFlatLay(sources: List<String>, prompt: String): Bitmap {
-    // MediaPipe's ImageGenerator is text-to-image, not image-to-image. Using
-    // it to "reconstruct" a real garment invents logos, seams and silhouettes.
-    // For the outfit-import flow preserve the pixels locally and reserve
-    // diffusion for future explicitly generative prompts.
-    if (sources.isNotEmpty() && prompt.contains("reconstruct one complete clothing item")) {
-      return reconstructFlatLay(sources)
-    }
-    return try {
-      generateDiffusionFlatLay(sources, prompt)
-    } catch (error: Throwable) {
-      // Some Android devices reject the SD1.5 tensor arena with a native
-      // "Pool hard cap violation". Never surface that implementation detail
-      // as an outfit-import error: return a deterministic local flat-lay card
-      // that the user can review instead.
-      reconstructFlatLay(sources)
-    }
-  }
-
-  private fun generateDiffusionFlatLay(sources: List<String>, prompt: String): Bitmap {
-    val context = androidContext()
-    val directory = ensureDiffusionDirectory(context)
-    val generator = diffusionGenerator(context, directory)
-    val referenceColors = sources.take(8).mapNotNull { source ->
-      runCatching { dominantColor(loadBitmap(source)) }.getOrNull()
-    }.distinct()
-    val referenceHint = if (referenceColors.isEmpty()) "" else
-      " Preserve the reference garment colours: ${referenceColors.joinToString(", ")}."
-    val finalPrompt = "$prompt$referenceHint"
-    val result = generator.generate(finalPrompt, 12, (System.nanoTime() and 0x7fffffff).toInt())
-    val bitmap = BitmapExtractor.extract(result.generatedImage())
-      ?: throw IllegalStateException("Stable Diffusion no devolvió ninguna imagen.")
-    return bitmap.copy(Bitmap.Config.ARGB_8888, false)
-  }
-
   private fun reconstructFlatLay(values: List<String>): Bitmap {
     val candidates = values.take(4).mapNotNull { value -> runCatching { loadBitmap(value) }.getOrNull() }
     val source = candidates.maxByOrNull { foregroundScore(it) }
       ?: throw IllegalArgumentException("No se pudo leer ninguna vista de la prenda.")
-    val cutout = removeNearBackground(source)
+    val cutout = cutoutForGarment(source)
     val bounds = opaqueBounds(cutout)
     if (bounds.isEmpty) return cutout
 
@@ -342,10 +321,37 @@ class ClosetLocalAIModule : Module() {
   }
 
   private fun foregroundScore(source: Bitmap): Int {
-    val cutout = removeNearBackground(source)
-    val pixels = IntArray(cutout.width * cutout.height)
-    cutout.getPixels(pixels, 0, cutout.width, 0, 0, cutout.width, cutout.height)
-    return pixels.count { Color.alpha(it) > 16 }
+    val primary = removeNearBackground(source, 65)
+    val primaryBounds = opaqueBounds(primary)
+    val primaryArea = if (primaryBounds.isEmpty) 0 else primaryBounds.width() * primaryBounds.height()
+    if (primaryArea >= max(256, source.width * source.height / 100)) return primaryArea
+    val conservative = removeNearBackground(source, 35)
+    val conservativeBounds = opaqueBounds(conservative)
+    val conservativeArea = if (conservativeBounds.isEmpty) 0 else conservativeBounds.width() * conservativeBounds.height()
+    return max(primaryArea, conservativeArea)
+  }
+
+  /**
+   * Keep a source view usable even when the background and garment have similar
+   * colours. The old border palette included clothing that touched the crop
+   * edge, so flood-fill could erase the entire garment and leave a tiny speck.
+   */
+  private fun cutoutForGarment(source: Bitmap): Bitmap {
+    val primary = removeNearBackground(source, 65)
+    val primaryBounds = opaqueBounds(primary)
+    val minimumArea = max(256, source.width * source.height / 100)
+    val primaryArea = if (primaryBounds.isEmpty) 0 else primaryBounds.width() * primaryBounds.height()
+    if (primaryArea >= minimumArea) return primary
+
+    val conservative = removeNearBackground(source, 35)
+    val conservativeBounds = opaqueBounds(conservative)
+    val conservativeArea = if (conservativeBounds.isEmpty) 0 else conservativeBounds.width() * conservativeBounds.height()
+    if (conservativeArea >= minimumArea && conservativeArea > primaryArea) return conservative
+
+    // A complete source is preferable to silently saving a microscopic
+    // fragment. The JS layer still presents it for review, never as a claimed
+    // high-confidence segmentation.
+    return source.copy(Bitmap.Config.ARGB_8888, false)
   }
 
   private fun opaqueBounds(source: Bitmap): Rect {
@@ -361,19 +367,37 @@ class ClosetLocalAIModule : Module() {
     return if (right < left || bottom < top) Rect() else Rect(left, top, right + 1, bottom + 1)
   }
 
-  private fun removeNearBackground(source: Bitmap): Bitmap {
+  private fun removeNearBackground(source: Bitmap, threshold: Int): Bitmap {
     val width = source.width
     val height = source.height
-    val points = intArrayOf(source.getPixel(0, 0), source.getPixel(width - 1, 0), source.getPixel(0, height - 1), source.getPixel(width - 1, height - 1))
-    val background = intArrayOf(points.map { Color.red(it) }.average().toInt(), points.map { Color.green(it) }.average().toInt(), points.map { Color.blue(it) }.average().toInt())
+    // Sample only corner patches. Sampling the whole border mistakes sleeves,
+    // trousers or shoes that touch the crop edge for background colours.
+    val patch = max(1, min(width, height) / 12)
+    fun corner(left: Int, top: Int): Int {
+      var red = 0; var green = 0; var blue = 0; var count = 0
+      val endX = min(width, left + patch)
+      val endY = min(height, top + patch)
+      for (y in top until endY) for (x in left until endX) {
+        val pixel = source.getPixel(x, y)
+        red += Color.red(pixel); green += Color.green(pixel); blue += Color.blue(pixel); count++
+      }
+      return Color.rgb(red / max(1, count), green / max(1, count), blue / max(1, count))
+    }
+    val backgroundColors = listOf(
+      corner(0, 0), corner(max(0, width - patch), 0),
+      corner(0, max(0, height - patch)), corner(max(0, width - patch), max(0, height - patch)),
+    )
     val pixels = IntArray(width * height)
     source.getPixels(pixels, 0, width, 0, 0, width, height)
     val transparent = BooleanArray(pixels.size)
     val queue = ArrayDeque<Int>()
     fun nearBackground(index: Int): Boolean {
       val pixel = pixels[index]
-      val distance = abs(Color.red(pixel) - background[0]) + abs(Color.green(pixel) - background[1]) + abs(Color.blue(pixel) - background[2])
-      return distance < 58
+      return backgroundColors.any { sample ->
+        abs(Color.red(pixel) - Color.red(sample)) +
+          abs(Color.green(pixel) - Color.green(sample)) +
+          abs(Color.blue(pixel) - Color.blue(sample)) < threshold
+      }
     }
     fun add(index: Int) {
       if (!transparent[index] && nearBackground(index)) {

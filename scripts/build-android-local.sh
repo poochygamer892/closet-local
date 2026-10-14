@@ -7,7 +7,7 @@ MODEL_DIR="$PROJECT_ROOT/modules/closet-local-ai/android/src/main/assets/models"
 MODEL_ZIP="$MODEL_DIR/sd15.zip"
 MODEL_URL="https://huggingface.co/On-device/stable-diffusion-v1-5-mediapipe/resolve/main/sd15.zip?download=true"
 MODEL_SIZE_BYTES=1906219565
-OUTPUT_APK="$PROJECT_ROOT/ClosetLocal-v0.3.10-android-local-diffusion.apk"
+OUTPUT_APK="$PROJECT_ROOT/ClosetLocal-v0.3.12-android-local-diffusion.apk"
 
 mkdir -p "$MODEL_DIR"
 

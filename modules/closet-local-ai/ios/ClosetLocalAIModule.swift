@@ -13,7 +13,7 @@ public final class ClosetLocalAIModule: Module {
 
     AsyncFunction("status") { () -> [String: Any] in
       if #available(iOS 17.0, *) {
-        return ["foreground": true, "classification": true, "platform": "ios-vision"]
+        return ["foreground": true, "classification": true, "generation": true, "generationMode": "stable-diffusion-with-vision-fallback", "platform": "ios-vision"]
       }
       return ["foreground": false, "classification": false, "platform": "ios"]
     }
@@ -112,6 +112,23 @@ public final class ClosetLocalAIModule: Module {
           promise.resolve(result)
         } catch {
           promise.reject("E_FLAT_LAY", error.localizedDescription)
+        }
+      }
+    }
+
+    AsyncFunction("fallbackFlatLay") { (sources: [String], destination: String, promise: Promise) in
+      DispatchQueue.global(qos: .userInitiated).async {
+        do {
+          let payload: NSDictionary = ["sources": sources, "destination": destination]
+          let selector = NSSelectorFromString("fallback:")
+          guard let bridge = NSClassFromString("LocalDiffusionBridge") as? NSObject.Type,
+                bridge.responds(to: selector),
+                let result = bridge.perform(selector, with: payload)?.takeUnretainedValue() as? String else {
+            throw ClosetLocalAIError.processing("No se pudo crear una tarjeta plana segura.")
+          }
+          promise.resolve(result)
+        } catch {
+          promise.reject("E_FALLBACK", error.localizedDescription)
         }
       }
     }
