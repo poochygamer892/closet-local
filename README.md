@@ -21,6 +21,11 @@ El alcance se definió a partir de observaciones públicas y análisis estático
 - Android Studio y JDK 17 para APK/AAB
 - macOS, Xcode 16 y CocoaPods para IPA
 
+## Política de compilación
+
+- Android se compila siempre en local con Gradle. Este repositorio no ejecuta builds Android en GitHub Actions.
+- iOS se compila siempre en GitHub Actions mediante `Build unsigned iOS IPA`; el workflow acepta ejecución manual y cambios en `main` o `no-local`.
+
 ## Instalar y ejecutar
 
 ```bash
@@ -36,21 +41,16 @@ Esto crea los proyectos nativos `android/` e `ios/`. `onnxruntime-react-native` 
 ## APK Android
 
 ```bash
-cd android
-./gradlew assembleRelease
-./gradlew bundleRelease
+./scripts/build-android-local.sh
 ```
 
 El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Para distribuirlo hay que configurar una clave de firma en Gradle. El AAB es el formato para Google Play.
 
 ## IPA iOS
 
-```bash
-npm run ios
-open ios/ClosetLocal.xcworkspace
-```
+En GitHub abre **Actions → Build unsigned iOS IPA → Run workflow** y descarga el artefacto `ClosetLocal-unsigned-ipa`. También se ejecuta automáticamente en pushes de `main` y `no-local` que cambien código.
 
-En Xcode selecciona tu equipo de firma y un dispositivo genérico, después usa **Product → Archive → Distribute App**. Apple exige macOS, Xcode y una cuenta de desarrollador para crear un IPA instalable.
+El workflow crea un IPA sin firma. Para distribución real, abre el proyecto en Xcode en un entorno macOS, selecciona tu equipo de firma y usa **Product → Archive → Distribute App**. Apple exige macOS, Xcode y una cuenta de desarrollador para crear un IPA instalable.
 
 Para pruebas con amigos, usa TestFlight o distribución Ad Hoc según el tipo de cuenta y los dispositivos autorizados.
 
