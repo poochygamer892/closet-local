@@ -13,6 +13,8 @@ La aplicación funciona localmente: no inicia FastAPI, no necesita Ollama y no r
 - Análisis de prendas con modelos ONNX locales opcionales.
 - Experiencia disponible para Android y iOS.
 
+El alcance se definió a partir de observaciones públicas y análisis estático documentados en [`docs/REA-ANALYSIS.md`](docs/REA-ANALYSIS.md). Las funciones que dependen de servicios externos —marketplace, feed social, clima, calendario, pagos y try-on— quedan como adaptadores futuros.
+
 ## Requisitos
 
 - Node 20+
