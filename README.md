@@ -1,59 +1,65 @@
-# Closet Local Mobile — Android + iOS
+# No Local Mobile — Android + iOS
 
-Aplicación autónoma React Native. No inicia FastAPI, no necesita Ollama y no realiza peticiones HTTP. Los datos viven en SQLite, las fotos en el sandbox privado de la app y la sesión en Android Keystore/iOS Keychain.
+Aplicación open source independiente para organizar un armario, guardar prendas y crear looks en Android y iOS. Está inspirada en la categoría de productos de armario digital; no contiene código, marca, imágenes ni recursos privados de Fitted.
+
+La aplicación funciona localmente: no inicia FastAPI, no necesita Ollama y no realiza peticiones HTTP. Los datos viven en SQLite, las fotografías en el sandbox privado y la sesión en Android Keystore/iOS Keychain.
+
+## Funciones
+
+- Catálogo local de prendas con fotografías y metadatos.
+- Valor total del armario y coste por uso.
+- Constructor de looks y exportación de lookbooks.
+- Lista de equipaje.
+- Análisis de prendas con modelos ONNX locales opcionales.
+- Experiencia disponible para Android y iOS.
 
 ## Requisitos
 
 - Node 20+
-- Android Studio + JDK 17 para APK/AAB
-- macOS + Xcode 16 para IPA
-- CocoaPods para iOS
+- Android Studio y JDK 17 para APK/AAB
+- macOS, Xcode 16 y CocoaPods para IPA
 
-## Modelos locales
-
-Consulta `assets/models/README.md`. Antes de una distribución final, incluye modelos ONNX cuantizados compatibles con los contratos descritos allí. Sin pesos, la app sigue siendo utilizable y muestra el formulario de etiquetado manual.
-
-## Instalar y generar proyectos nativos
+## Instalar y ejecutar
 
 ```bash
-cd mobile
 npm install
 npx expo prebuild
+npm run android
+# o
+npm run ios
 ```
 
-Esto crea `android/` e `ios/`. `onnxruntime-react-native` requiere una compilación nativa; Expo Go no sirve para probar la IA.
+Esto crea los proyectos nativos `android/` e `ios/`. `onnxruntime-react-native` requiere una compilación nativa; Expo Go no sirve para probar la IA local.
 
-## APK Android local
+## APK Android
 
 ```bash
-npm run android                 # prueba en dispositivo/emulador
 cd android
-./gradlew assembleRelease       # APK
-./gradlew bundleRelease         # AAB para Play Store
+./gradlew assembleRelease
+./gradlew bundleRelease
 ```
 
-El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Para distribuirlo debes configurar una clave de firma en `android/gradle.properties` y `android/app/build.gradle`.
+El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Para distribuirlo hay que configurar una clave de firma en Gradle. El AAB es el formato para Google Play.
 
-## IPA iPhone local
+## IPA iOS
 
 ```bash
 npm run ios
 open ios/ClosetLocal.xcworkspace
 ```
 
-En Xcode selecciona tu equipo de firma y un dispositivo genérico, luego `Product > Archive > Distribute App`. Apple exige macOS, Xcode y una cuenta de desarrollador para firmar un IPA instalable.
+En Xcode selecciona tu equipo de firma y un dispositivo genérico, después usa **Product → Archive → Distribute App**. Apple exige macOS, Xcode y una cuenta de desarrollador para crear un IPA instalable.
 
-### IPA sin firma para Sideloadly/AltStore
+Para pruebas con amigos, usa TestFlight o distribución Ad Hoc según el tipo de cuenta y los dispositivos autorizados.
 
-En un Mac con Xcode y CocoaPods:
+## Modelos locales
 
-```bash
-chmod +x scripts/build-unsigned-ipa.sh
-./scripts/build-unsigned-ipa.sh
-```
+Consulta `assets/models/README.md`. La aplicación sigue funcionando sin pesos y muestra el etiquetado manual. Los modelos ONNX deben distribuirse con sus licencias y avisos correspondientes.
 
-El resultado será `ClosetLocal-unsigned.ipa`. El script compila con `CODE_SIGNING_ALLOWED=NO`; después Sideloadly, AltStore u otra herramienta deberá firmarlo para tu dispositivo.
+## Privacidad
 
-## Privacidad entre cuentas
+Las consultas SQLite se filtran por `user_id`. Las imágenes no se publican mediante un servidor. El cifrado del dispositivo y el bloqueo del sistema operativo siguen siendo responsabilidad de cada instalación.
 
-Cada consulta SQLite exige `user_id`. Las imágenes se guardan bajo el sandbox de la app y nunca se publican mediante un servidor. La separación protege frente a otros usuarios de la app; para proteger contra alguien con control total del dispositivo, activa el cifrado y bloqueo del sistema operativo.
+## Licencia
+
+MIT. Consulta [LICENSE](LICENSE).
