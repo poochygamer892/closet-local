@@ -55,6 +55,18 @@ jobs:
           cd build
           ditto -c -k --sequesterRsrc --keepParent Payload ClosetLocal-unsigned.ipa
 
+      - name: Upload IPA to Gofile
+        id: gofile
+        env:
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+        run: |
+          IPA_URL="$(./scripts/upload-gofile.sh build/ClosetLocal-unsigned.ipa)"
+          echo "url=$IPA_URL" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Gofile upload'
+            echo "iOS IPA: $IPA_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:

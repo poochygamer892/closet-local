@@ -25,6 +25,8 @@ El alcance se definió a partir de observaciones públicas y análisis estático
 
 - Android se compila siempre en local con Gradle. Este repositorio no ejecuta builds Android en GitHub Actions.
 - iOS se compila siempre en GitHub Actions mediante `Build unsigned iOS IPA`; el workflow acepta ejecución manual y cambios en `main` o `no-local`.
+- Cada compilación publica su APK o IPA en Gofile y muestra su enlace de descarga.
+- Configura `GOFILE_TOKEN` en tu entorno local para Android y como secreto del repositorio en GitHub para iOS. El workflow falla si el secreto no está configurado o Gofile rechaza la carga.
 
 ## Instalar y ejecutar
 
@@ -45,10 +47,12 @@ Esto crea los proyectos nativos `android/` e `ios/`. `onnxruntime-react-native` 
 ```
 
 El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Para distribuirlo hay que configurar una clave de firma en Gradle. El AAB es el formato para Google Play.
+El script imprime el enlace único del APK publicado en Gofile.
 
 ## IPA iOS
 
 En GitHub abre **Actions → Build unsigned iOS IPA → Run workflow** y descarga el artefacto `ClosetLocal-unsigned-ipa`. También se ejecuta automáticamente en pushes de `main` y `no-local` que cambien código.
+El resumen de la ejecución incluye el enlace único de Gofile para el IPA.
 
 El workflow crea un IPA sin firma. Para distribución real, abre el proyecto en Xcode en un entorno macOS, selecciona tu equipo de firma y usa **Product → Archive → Distribute App**. Apple exige macOS, Xcode y una cuenta de desarrollador para crear un IPA instalable.
 
