@@ -33,6 +33,7 @@ jobs:
 
       - name: Build unsigned app
         run: |
+          mkdir -p build
           set -o pipefail
           xcodebuild \
             -workspace ios/ClosetLocal.xcworkspace \
