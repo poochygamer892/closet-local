@@ -59,6 +59,7 @@ jobs:
         id: gofile
         run: |
           IPA_URL="$(./scripts/upload-gofile.sh build/ClosetLocal-unsigned.ipa)"
+          echo "iOS IPA en Gofile: $IPA_URL"
           echo "url=$IPA_URL" >> "$GITHUB_OUTPUT"
           {
             echo '## Gofile upload'
@@ -74,6 +75,15 @@ jobs:
           retention-days: 14
 
       - name: Upload build log on failure
+        if: failure()
+        run: |
+          if [[ -f build/xcodebuild.log ]]; then
+            rg -n -C 2 'error:|fatal error:|BUILD FAILED|Command .* failed|SwiftCompile' build/xcodebuild.log | tail -120 || tail -120 build/xcodebuild.log
+          else
+            echo 'No se generó build/xcodebuild.log.'
+          fi
+
+      - name: Archive build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:

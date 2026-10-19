@@ -6,7 +6,7 @@ buildscript {
         minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '24')
         compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '35')
         targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')
-        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.24'
 
         ndkVersion = "26.1.10909125"
     }
@@ -23,7 +23,20 @@ buildscript {
 
 apply plugin: "com.facebook.react.rootproject"
 
+def onnxRuntimeVersion = new groovy.json.JsonSlurper()
+        .parse(file("../node_modules/onnxruntime-react-native/package.json"))
+        .version
+
 allprojects {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.microsoft.onnxruntime') {
+                details.useVersion(onnxRuntimeVersion)
+                details.because('Keep Android ONNX artifacts aligned with the installed React Native package')
+            }
+        }
+    }
+
     repositories {
         maven {
             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
