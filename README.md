@@ -26,7 +26,7 @@ El alcance se definió a partir de observaciones públicas y análisis estático
 - Android se compila siempre en local con Gradle. Este repositorio no ejecuta builds Android en GitHub Actions.
 - iOS se compila siempre en GitHub Actions mediante `Build unsigned iOS IPA`; el workflow acepta ejecución manual y cambios en `main` o `no-local`.
 - Cada compilación publica su APK o IPA en Gofile y muestra su enlace de descarga.
-- Configura `GOFILE_TOKEN` en tu entorno local para Android y como secreto del repositorio en GitHub para iOS. El workflow falla si el secreto no está configurado o Gofile rechaza la carga.
+- Las cargas se realizan como invitado, sin token ni secreto de Gofile. Si Gofile rechaza una carga guest, la compilación muestra el error y falla en el paso de publicación.
 
 ## Instalar y ejecutar
 
